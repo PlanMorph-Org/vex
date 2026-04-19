@@ -1,0 +1,19 @@
+[package]
+name = "vex-ifc-parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Streaming STEP Part 21 / IFC parser."
+
+[lints]
+workspace = true
+
+[dependencies]
+vex-utils = { workspace = true }
+thiserror  = { workspace = true }
+memchr     = { workspace = true }
+tracing    = { workspace = true }
+serde      = { workspace = true }
+hex        = { workspace = true }

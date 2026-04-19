@@ -1,0 +1,23 @@
+[package]
+name = "vex-graph"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Normalized graph IR for IFC models."
+
+[lints]
+workspace = true
+
+[dependencies]
+vex-utils      = { workspace = true }
+vex-ifc-parser = { workspace = true }
+vex-geometry   = { workspace = true }
+rayon           = { workspace = true }
+thiserror       = { workspace = true }
+slotmap         = { workspace = true }
+smallvec        = { workspace = true }
+serde           = { workspace = true }
+ahash           = { workspace = true }
+tracing         = { workspace = true }

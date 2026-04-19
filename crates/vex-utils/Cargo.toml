@@ -1,0 +1,21 @@
+[package]
+name = "vex-utils"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared primitives for Vex: hashing, interning, errors, tolerance."
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+blake3    = { workspace = true }
+sha2      = { workspace = true }
+hex       = { workspace = true }
+serde     = { workspace = true }
+bincode   = { workspace = true }
+lasso     = { workspace = true }
+tracing   = { workspace = true }

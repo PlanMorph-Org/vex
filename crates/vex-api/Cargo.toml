@@ -1,0 +1,23 @@
+[package]
+name = "vex-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "User-verb façade over vex-core for plugins and embedders."
+
+[lints]
+workspace = true
+
+[dependencies]
+vex-core        = { workspace = true }
+vex-utils       = { workspace = true }
+vex-storage     = { workspace = true }
+vex-diff        = { workspace = true }
+vex-visual-diff = { workspace = true }
+vex-summary     = { workspace = true }
+serde           = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

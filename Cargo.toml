@@ -1,0 +1,105 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vex-utils",
+    "crates/vex-ifc-parser",
+    "crates/vex-graph",
+    "crates/vex-storage",
+    "crates/vex-diff",
+    "crates/vex-geometry",
+    "crates/vex-core",
+    "crates/vex-visual-diff",
+    "crates/vex-summary",
+    "crates/vex-api",
+    "crates/vex-protocol",
+    "crates/vex-serve",
+    "crates/vex-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license-file = "LICENSE"
+repository = "https://github.com/vex-bim/vex"
+authors = ["Vex BIM Ltd"]
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+dbg_macro = "deny"
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+# Lints we accept for now to keep the scaffold readable; will revisit.
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+
+[workspace.dependencies]
+# Workspace-internal crates
+vex-utils       = { version = "0.1.0", path = "crates/vex-utils" }
+vex-ifc-parser  = { version = "0.1.0", path = "crates/vex-ifc-parser" }
+vex-graph       = { version = "0.1.0", path = "crates/vex-graph" }
+vex-storage     = { version = "0.1.0", path = "crates/vex-storage" }
+vex-diff        = { version = "0.1.0", path = "crates/vex-diff" }
+vex-geometry    = { version = "0.1.0", path = "crates/vex-geometry" }
+vex-core        = { version = "0.1.0", path = "crates/vex-core" }
+vex-visual-diff = { version = "0.1.0", path = "crates/vex-visual-diff" }
+vex-summary     = { version = "0.1.0", path = "crates/vex-summary" }
+vex-api         = { version = "0.1.0", path = "crates/vex-api" }
+vex-protocol    = { version = "0.1.0", path = "crates/vex-protocol" }
+vex-serve       = { version = "0.1.0", path = "crates/vex-serve" }
+
+# Third-party
+thiserror        = "1.0"
+anyhow           = "1.0"
+tracing          = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+blake3           = "1.5"
+sha2             = "0.10"
+hex              = "0.4"
+hmac             = "0.12"
+ahash            = "0.8"
+serde            = { version = "1.0", features = ["derive"] }
+serde_json       = "1.0"
+bincode          = "1.3"
+smallvec         = { version = "1.13", features = ["serde", "union"] }
+slotmap          = { version = "1.0", features = ["serde"] }
+lasso            = { version = "0.7", features = ["multi-threaded", "serialize"] }
+bumpalo          = "3.16"
+memchr           = "2.7"
+rayon            = "1.10"
+redb             = "2.1"
+zstd             = "0.13"
+clap             = { version = "4.5", features = ["derive", "env"] }
+time             = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+uuid             = { version = "1.10", features = ["v4", "serde"] }
+toml             = "0.8"
+ed25519-dalek    = { version = "2", features = ["rand_core", "serde"] }
+rand_core        = { version = "0.6", features = ["getrandom"] }
+
+# Dev / test
+proptest         = "1.5"
+criterion        = "0.5"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.bench]
+opt-level = 3
+lto = "thin"

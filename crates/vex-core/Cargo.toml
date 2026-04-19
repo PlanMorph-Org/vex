@@ -1,0 +1,29 @@
+[package]
+name = "vex-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Repository orchestrator for Vex."
+
+[lints]
+workspace = true
+
+[dependencies]
+vex-utils      = { workspace = true }
+vex-ifc-parser = { workspace = true }
+vex-graph      = { workspace = true }
+vex-storage    = { workspace = true }
+vex-diff       = { workspace = true }
+thiserror       = { workspace = true }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+tracing         = { workspace = true }
+time            = { workspace = true }
+ahash           = { workspace = true }
+smallvec        = { workspace = true }
+toml            = { workspace = true }
+ed25519-dalek   = { workspace = true }
+rand_core       = { workspace = true }
+bincode         = { workspace = true }

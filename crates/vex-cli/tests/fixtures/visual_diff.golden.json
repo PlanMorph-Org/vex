@@ -1,0 +1,41 @@
+{
+  "schema": "vex.visual-diff/1",
+  "from": "<from>",
+  "to": "<to>",
+  "elements": [
+    {
+      "id": {
+        "GlobalId": "2O2Fr$t4X7Zf8NOew3FNr2"
+      },
+      "type_name": "IFCWALL",
+      "kind": "renamed",
+      "deltas": [
+        {
+          "key": "_2",
+          "before": {
+            "Text": "Wall-A"
+          },
+          "after": {
+            "Text": "Wall-B"
+          }
+        }
+      ],
+      "hint": "Name: Wall-A \u2192 Wall-B"
+    },
+    {
+      "id": {
+        "GlobalId": "4O2Fr$t4X7Zf8NOew3FNr4"
+      },
+      "type_name": "IFCCOLUMN",
+      "kind": "added"
+    }
+  ],
+  "summary": "1 column added, 1 wall renamed",
+  "counts": {
+    "added": 1,
+    "removed": 0,
+    "moved": 0,
+    "renamed": 1,
+    "modified": 0
+  }
+}

@@ -1,0 +1,7 @@
+[toolchain]
+# Bumped from 1.85.0 to satisfy MSRV of cloud-backend dependencies
+# (aws-sdk-s3 / aws-config require >= 1.91, sqlx is fine on stable).
+# The local CLI build still works on 1.85+ when cloud features are off.
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

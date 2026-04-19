@@ -1,0 +1,18 @@
+[package]
+name = "vex-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Wire protocol for vex remotes (clone/fetch/push/pull)."
+
+[lints]
+workspace = true
+
+[dependencies]
+vex-utils  = { workspace = true }
+serde      = { workspace = true }
+bincode    = { workspace = true }
+thiserror  = { workspace = true }
+tracing    = { workspace = true }

@@ -1,0 +1,36 @@
+[package]
+name = "vex-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Content-addressable object store for Vex."
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# Enable the S3-compatible object backend (AWS S3, DigitalOcean Spaces, MinIO, R2).
+s3-backend = ["dep:aws-config", "dep:aws-sdk-s3", "dep:tokio"]
+# Enable the Postgres ref backend (transactional CAS for concurrent pushes).
+postgres-backend = ["dep:sqlx", "dep:tokio", "dep:uuid"]
+
+[dependencies]
+vex-utils  = { workspace = true }
+thiserror  = { workspace = true }
+redb       = { workspace = true }
+zstd       = { workspace = true }
+serde      = { workspace = true }
+bincode    = { workspace = true }
+tracing    = { workspace = true }
+time       = { workspace = true }
+
+# Optional cloud-backend dependencies, gated behind features so the local
+# `vex` CLI does not pull in the AWS SDK or SQLx.
+aws-config = { version = "1.5", optional = true, features = ["behavior-version-latest"] }
+aws-sdk-s3 = { version = "1.50", optional = true }
+sqlx       = { version = "0.8", optional = true, default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
+tokio      = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "sync"] }
+uuid       = { workspace = true, optional = true }

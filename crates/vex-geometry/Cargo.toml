@@ -1,0 +1,14 @@
+[package]
+name = "vex-geometry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Geometry hashing for IFC (Phase 3)."
+
+[lints]
+workspace = true
+
+[dependencies]
+vex-utils = { workspace = true }

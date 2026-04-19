@@ -1,0 +1,15 @@
+[package]
+name = "vex-visual-diff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Classify a Vex DiffReport into per-element ElementChange records for plugin overlays."
+
+[lints]
+workspace = true
+
+[dependencies]
+vex-diff = { workspace = true }
+serde    = { workspace = true }

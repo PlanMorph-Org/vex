@@ -1,0 +1,22 @@
+[package]
+name = "vex-diff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Semantic diff engine for Vex."
+
+[lints]
+workspace = true
+
+[dependencies]
+vex-utils = { workspace = true }
+vex-graph = { workspace = true }
+thiserror  = { workspace = true }
+ahash      = { workspace = true }
+serde      = { workspace = true }
+tracing    = { workspace = true }
+
+[dev-dependencies]
+vex-ifc-parser = { workspace = true }

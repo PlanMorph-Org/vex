@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_suffix: windows-x86_64
+            exe: .exe
+          - runner: macos-latest   # arm64 (Apple Silicon, macos-14)
+            target: aarch64-apple-darwin
+            artifact_suffix: macos-arm64
+            exe: ""
+          - runner: macos-13       # Intel
+            target: x86_64-apple-darwin
+            artifact_suffix: macos-x86_64
+            exe: ""
+          - runner: ubuntu-latest  # vex-serve server deployment target
+            target: x86_64-unknown-linux-gnu
+            artifact_suffix: linux-x86_64
+            exe: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      # ── vex CLI (no cloud features — smallest binary for end users) ──────
+      - name: Build vex
+        run: cargo build --release -p vex-cli --target ${{ matrix.target }}
+
+      # ── vex-serve (cloud features — Linux server only) ───────────────────
+      # vex-serve runs on Linux. Skip the build on Windows/macOS client targets
+      # to avoid pulling in the AWS SDK on platforms where it won't be deployed.
+      #
+      # After deploying vex-serve to the host, set these env vars (in
+      # /etc/planmorph/vex.env — owned root:vex 0640):
+      #   VEX_API_BASE            https://api.planmorph.software
+      #   VEX_INTERNAL_HMAC_SECRET  must match Vex__InternalSecret in the API
+      #   VEX_REPO_ROOT           /var/lib/planmorph-vex
+      #   VEX_FAIL_CLOSED         1   (deny SSH if the API is unreachable)
+      - name: Build vex-serve
+        if: matrix.artifact_suffix == 'linux-x86_64'
+        run: >
+          cargo build --release -p vex-serve
+          --features 'vex-storage/s3-backend vex-storage/postgres-backend'
+          --target ${{ matrix.target }}
+
+      # ── Package ──────────────────────────────────────────────────────────
+      - name: Package artifacts
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          EXE="${{ matrix.exe }}"
+          DIR="dist/vex-${VERSION}-${{ matrix.artifact_suffix }}"
+          mkdir -p "$DIR"
+
+          cp "target/${{ matrix.target }}/release/vex${EXE}" "$DIR/vex${EXE}"
+
+          if [[ -f "target/${{ matrix.target }}/release/vex-serve" ]]; then
+            cp "target/${{ matrix.target }}/release/vex-serve" "$DIR/vex-serve"
+          fi
+
+          cd "$DIR"
+          sha256sum vex${EXE} >> SHA256SUMS
+          [[ -f vex-serve ]] && sha256sum vex-serve >> SHA256SUMS
+          cd ../..
+
+          ARCHIVE="dist/vex-${VERSION}-${{ matrix.artifact_suffix }}.tar.gz"
+          tar -czf "$ARCHIVE" -C dist "vex-${VERSION}-${{ matrix.artifact_suffix }}"
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vex-${{ matrix.artifact_suffix }}
+          path: ${{ env.ARCHIVE }}
+          retention-days: 1
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
