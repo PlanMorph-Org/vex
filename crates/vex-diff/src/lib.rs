@@ -334,17 +334,9 @@ pub fn render_text(report: &DiffReport) -> String {
                 deltas,
                 layer,
             } => {
-                let _ = writeln!(
-                    out,
-                    "~ {type_name} {} [{layer:?}]",
-                    identity_text(identity),
-                );
+                let _ = writeln!(out, "~ {type_name} {} [{layer:?}]", identity_text(identity),);
                 for d in deltas {
-                    let _ = writeln!(
-                        out,
-                        "    {} : {:?} -> {:?}",
-                        d.key, d.before, d.after
-                    );
+                    let _ = writeln!(out, "    {} : {:?} -> {:?}", d.key, d.before, d.after);
                 }
             }
         }
