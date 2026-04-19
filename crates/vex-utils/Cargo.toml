@@ -3,7 +3,7 @@ name = "vex-utils"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+license-file.workspace = true
 repository.workspace = true
 description = "Shared primitives for Vex: hashing, interning, errors, tolerance."
 
