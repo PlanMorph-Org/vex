@@ -316,7 +316,10 @@ mod tests {
 
     #[test]
     fn key_parser_rejects_bad_shape() {
-        assert!(parse_hash_from_key("tenants/x/objects/ab/ab/short.bin", "tenants/x/objects/").is_none());
+        assert!(
+            parse_hash_from_key("tenants/x/objects/ab/ab/short.bin", "tenants/x/objects/")
+                .is_none()
+        );
         assert!(parse_hash_from_key("not/the/prefix/ab/ab/x.bin", "tenants/x/objects/").is_none());
     }
 }

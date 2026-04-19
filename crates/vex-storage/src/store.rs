@@ -84,8 +84,8 @@ impl ObjectStore {
 
     /// Write a typed object, returning its content hash.
     pub fn put<T: Serialize>(&self, kind: ObjectKind, value: &T) -> VexResult<Hash256> {
-        let payload = bincode::serialize(value)
-            .map_err(|e| VexError::Storage(format!("bincode: {e}")))?;
+        let payload =
+            bincode::serialize(value).map_err(|e| VexError::Storage(format!("bincode: {e}")))?;
         let (hash, framed) = encode(kind, &payload, self.algo)?;
         if !self.objects.has(hash)? {
             self.objects.put(hash, &framed)?;

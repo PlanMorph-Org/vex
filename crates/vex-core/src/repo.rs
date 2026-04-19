@@ -18,7 +18,7 @@ use vex_ifc_parser::{ParseLimits, Parser};
 use vex_storage::{
     Blob, Commit, Identity, ObjectStore, SchemaManifest, SerValue, Tree, TreeEdge, TreeEntry,
 };
-use vex_utils::{VexError, VexResult, Hash256, Profile, StringInterner};
+use vex_utils::{Hash256, Profile, StringInterner, VexError, VexResult};
 
 const DEFAULT_BRANCH: &str = "refs/heads/main";
 const HEAD_REF: &str = "HEAD";
@@ -101,8 +101,8 @@ impl Repository {
     /// Parse an IFC file, build a graph, serialize it as a staged Tree object,
     /// and update the staging ref to point at that tree. Returns the tree hash.
     pub fn import(&self, ifc_path: impl AsRef<Path>) -> VexResult<Hash256> {
-        let file = File::open(ifc_path.as_ref())
-            .map_err(|e| VexError::io_at(ifc_path.as_ref(), e))?;
+        let file =
+            File::open(ifc_path.as_ref()).map_err(|e| VexError::io_at(ifc_path.as_ref(), e))?;
         let interner = StringInterner::new();
         let mut parser = Parser::new(BufReader::new(file), ParseLimits::default());
         let graph = GraphBuilder::build_from_parser_with_profile(
@@ -128,7 +128,12 @@ impl Repository {
         author_name: impl Into<String>,
         author_email: impl Into<String>,
     ) -> VexResult<Hash256> {
-        self.commit_inner(message.into(), author_name.into(), author_email.into(), None)
+        self.commit_inner(
+            message.into(),
+            author_name.into(),
+            author_email.into(),
+            None,
+        )
     }
 
     /// Commit and sign with the named Ed25519 key stored under `.vex/keys/`.
@@ -319,11 +324,7 @@ impl Repository {
     /// Three-way merge of `ours` and `theirs` based on their common ancestor.
     /// Returns a [`vex_diff::MergeResult`]; when `clean` is false, the caller
     /// is expected to surface conflicts to the user rather than advance HEAD.
-    pub fn merge_refs(
-        &self,
-        ours: &str,
-        theirs: &str,
-    ) -> VexResult<vex_diff::MergeResult> {
+    pub fn merge_refs(&self, ours: &str, theirs: &str) -> VexResult<vex_diff::MergeResult> {
         let ho = self.resolve_ref(ours)?;
         let ht = self.resolve_ref(theirs)?;
         let base = self
@@ -489,8 +490,20 @@ impl Repository {
             })
             .collect();
         edges.sort_by(|a, b| {
-            (a.from.as_bytes(), a.to.as_bytes(), a.kind, a.slot, a.list_index)
-                .cmp(&(b.from.as_bytes(), b.to.as_bytes(), b.kind, b.slot, b.list_index))
+            (
+                a.from.as_bytes(),
+                a.to.as_bytes(),
+                a.kind,
+                a.slot,
+                a.list_index,
+            )
+                .cmp(&(
+                    b.from.as_bytes(),
+                    b.to.as_bytes(),
+                    b.kind,
+                    b.slot,
+                    b.list_index,
+                ))
         });
 
         let tree = Tree {
@@ -507,12 +520,9 @@ impl Repository {
     /// Note: the returned graph is *not* byte-identical to the original IFC —
     /// it's a canonical re-projection. That's sufficient for diffing, which is
     /// the only operation that consumes it today.
-    fn materialize_graph(
-        &self,
-        tree_hash: Hash256,
-    ) -> VexResult<(IfcGraph, StringInterner)> {
-        use vex_graph::ir::{Edge, GlobalId, Node, Value};
+    fn materialize_graph(&self, tree_hash: Hash256) -> VexResult<(IfcGraph, StringInterner)> {
         use smallvec::SmallVec;
+        use vex_graph::ir::{Edge, GlobalId, Node, Value};
 
         let tree = self.store.get_tree(tree_hash)?;
         let interner = StringInterner::new();
@@ -539,12 +549,14 @@ impl Repository {
         }
 
         for edge in &tree.edges {
-            let from = hash_to_node.get(&edge.from).copied().ok_or_else(|| {
-                VexError::Graph("tree edge references unknown from-hash".into())
-            })?;
-            let to = hash_to_node.get(&edge.to).copied().ok_or_else(|| {
-                VexError::Graph("tree edge references unknown to-hash".into())
-            })?;
+            let from = hash_to_node
+                .get(&edge.from)
+                .copied()
+                .ok_or_else(|| VexError::Graph("tree edge references unknown from-hash".into()))?;
+            let to = hash_to_node
+                .get(&edge.to)
+                .copied()
+                .ok_or_else(|| VexError::Graph("tree edge references unknown to-hash".into()))?;
             graph.add_edge(Edge {
                 from,
                 to,
@@ -648,8 +660,7 @@ impl Repository {
                 let (g_head, i_head) = self.materialize_graph(head_commit.tree)?;
                 if let Some(s) = staged_opt {
                     let tree = self.store.get_tree(s)?;
-                    let (g_stg, i_stg) =
-                        self.materialize_graph_from_tree(&tree)?;
+                    let (g_stg, i_stg) = self.materialize_graph_from_tree(&tree)?;
                     let report = diff(&g_head, &i_head, &g_stg, &i_stg, self.hash_config());
                     Ok(Status {
                         staged: Some(s),
@@ -671,10 +682,7 @@ impl Repository {
         }
     }
 
-    fn materialize_graph_from_tree(
-        &self,
-        tree: &Tree,
-    ) -> VexResult<(IfcGraph, StringInterner)> {
+    fn materialize_graph_from_tree(&self, tree: &Tree) -> VexResult<(IfcGraph, StringInterner)> {
         // Stash the tree object addressable by its hash. We already have the
         // decoded tree; we need the blobs it references, which live in the
         // store. So just call the existing materializer on the tree_hash.
@@ -691,8 +699,7 @@ impl Repository {
         let (graph, interner) = self.materialize_graph(commit.tree)?;
         let text = render_ifc(&graph, &interner);
         let bytes = text.as_bytes();
-        std::fs::write(out.as_ref(), bytes)
-            .map_err(|e| VexError::io_at(out.as_ref(), e))?;
+        std::fs::write(out.as_ref(), bytes).map_err(|e| VexError::io_at(out.as_ref(), e))?;
         Ok(bytes.len())
     }
 
@@ -793,8 +800,7 @@ fn render_ifc(graph: &IfcGraph, interner: &StringInterner) -> String {
     use vex_graph::ir::Value;
 
     // Stable ordering: sort nodes by step_id so output is reproducible.
-    let mut ordered: Vec<(vex_graph::NodeId, &vex_graph::ir::Node)> =
-        graph.nodes.iter().collect();
+    let mut ordered: Vec<(vex_graph::NodeId, &vex_graph::ir::Node)> = graph.nodes.iter().collect();
     ordered.sort_by_key(|(_, n)| n.step_id);
     // Remap step_ids to a dense 1..N space so checkout output is tidy.
     let mut step_of: ahash::AHashMap<vex_graph::NodeId, u64> =
@@ -815,10 +821,7 @@ fn render_ifc(graph: &IfcGraph, interner: &StringInterner) -> String {
             .insert((e.slot, e.list_index), e.to);
     }
 
-    let schema = graph
-        .schema
-        .clone()
-        .unwrap_or_else(|| "IFC4".to_string());
+    let schema = graph.schema.clone().unwrap_or_else(|| "IFC4".to_string());
 
     let mut out = String::new();
     out.push_str("ISO-10303-21;\n");
@@ -855,10 +858,7 @@ fn render_ifc(graph: &IfcGraph, interner: &StringInterner) -> String {
             // Edge in this slot?
             let edge_targets: Vec<_> = edges_by_node
                 .get(id)
-                .map(|m| {
-                    m.range((slot, 0u16)..(slot + 1, 0u16))
-                        .collect::<Vec<_>>()
-                })
+                .map(|m| m.range((slot, 0u16)..(slot + 1, 0u16)).collect::<Vec<_>>())
                 .unwrap_or_default();
             if !edge_targets.is_empty() {
                 if edge_targets.len() == 1 && edge_targets[0].0 .1 == u16::MAX {
@@ -1059,8 +1059,8 @@ fn load_profile(vex_dir: &Path) -> VexResult<Profile> {
         return Ok(Profile::default());
     }
     let text = std::fs::read_to_string(&path).map_err(|e| VexError::io_at(&path, e))?;
-    let cfg: RawConfig = toml::from_str(&text)
-        .map_err(|e| VexError::Config(format!("invalid config.toml: {e}")))?;
+    let cfg: RawConfig =
+        toml::from_str(&text).map_err(|e| VexError::Config(format!("invalid config.toml: {e}")))?;
     let default = Profile::default();
     let n = cfg.normalization;
     let mut profile = Profile {

@@ -55,10 +55,7 @@ pub enum VexError {
 
 impl From<io::Error> for VexError {
     fn from(source: io::Error) -> Self {
-        VexError::Io {
-            path: None,
-            source,
-        }
+        VexError::Io { path: None, source }
     }
 }
 

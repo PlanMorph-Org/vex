@@ -179,20 +179,12 @@ pub fn triangulated_face_set(
 }
 
 #[must_use]
-pub fn polygonal_face_set(
-    vertices: &[[f64; 3]],
-    faces: &[Vec<usize>],
-    tol: &Tolerance,
-) -> Hash256 {
+pub fn polygonal_face_set(vertices: &[[f64; 3]], faces: &[Vec<usize>], tol: &Tolerance) -> Hash256 {
     polyhedron_hash(ShapeKind::PolygonalFaceSet, vertices, faces, tol)
 }
 
 #[must_use]
-pub fn faceted_brep(
-    vertices: &[[f64; 3]],
-    faces: &[Vec<usize>],
-    tol: &Tolerance,
-) -> Hash256 {
+pub fn faceted_brep(vertices: &[[f64; 3]], faces: &[Vec<usize>], tol: &Tolerance) -> Hash256 {
     polyhedron_hash(ShapeKind::FacetedBrep, vertices, faces, tol)
 }
 
@@ -210,8 +202,10 @@ fn mesh_hash(
     for c in bbox.iter().flatten() {
         push_f64(&mut h, *c);
     }
-    let mut sorted_verts: Vec<[u64; 3]> =
-        quant.iter().map(|v| [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()]).collect();
+    let mut sorted_verts: Vec<[u64; 3]> = quant
+        .iter()
+        .map(|v| [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()])
+        .collect();
     sorted_verts.sort();
     for v in &sorted_verts {
         for c in v {
@@ -242,8 +236,10 @@ fn polyhedron_hash(
     for c in bbox.iter().flatten() {
         push_f64(&mut h, *c);
     }
-    let mut sorted_verts: Vec<[u64; 3]> =
-        quant.iter().map(|v| [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()]).collect();
+    let mut sorted_verts: Vec<[u64; 3]> = quant
+        .iter()
+        .map(|v| [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()])
+        .collect();
     sorted_verts.sort();
     for v in &sorted_verts {
         for c in v {

@@ -46,7 +46,10 @@ pub enum Value {
     Enum(StringId),
     List(Vec<Value>),
     /// A typed wrapper: `IFCLENGTHMEASURE(3.0)` → `Typed { name_id, inner }`.
-    Typed { name: StringId, inner: Box<Value> },
+    Typed {
+        name: StringId,
+        inner: Box<Value>,
+    },
 }
 
 /// Edge classification — which relationship the positional argument expresses.

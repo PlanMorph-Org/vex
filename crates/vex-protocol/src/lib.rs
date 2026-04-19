@@ -173,10 +173,15 @@ impl Frame {
 /// remain a no-op.
 pub fn write_frame<W: Write>(w: &mut W, frame: &Frame) -> ProtocolResult<()> {
     let body = bincode::serialize(frame).map_err(|e| ProtocolError::Encode(e.to_string()))?;
-    let len = u32::try_from(body.len())
-        .map_err(|_| ProtocolError::FrameTooLarge { actual: u32::MAX, max: MAX_FRAME_BYTES })?;
+    let len = u32::try_from(body.len()).map_err(|_| ProtocolError::FrameTooLarge {
+        actual: u32::MAX,
+        max: MAX_FRAME_BYTES,
+    })?;
     if len > MAX_FRAME_BYTES {
-        return Err(ProtocolError::FrameTooLarge { actual: len, max: MAX_FRAME_BYTES });
+        return Err(ProtocolError::FrameTooLarge {
+            actual: len,
+            max: MAX_FRAME_BYTES,
+        });
     }
     w.write_all(&len.to_le_bytes())?;
     w.write_all(&body)?;
@@ -190,7 +195,10 @@ pub fn read_frame<R: Read>(r: &mut R) -> ProtocolResult<Frame> {
     read_exact_eof(r, &mut len_buf)?;
     let len = u32::from_le_bytes(len_buf);
     if len > MAX_FRAME_BYTES {
-        return Err(ProtocolError::FrameTooLarge { actual: len, max: MAX_FRAME_BYTES });
+        return Err(ProtocolError::FrameTooLarge {
+            actual: len,
+            max: MAX_FRAME_BYTES,
+        });
     }
     let mut body = vec![0u8; len as usize];
     read_exact_eof(r, &mut body)?;
@@ -264,9 +272,13 @@ mod tests {
     fn update_ref_cas_status_variants() {
         for status in [
             UpdateRefStatus::Ok,
-            UpdateRefStatus::Conflict { actual: Some(Hash256::from_bytes([2u8; 32])) },
+            UpdateRefStatus::Conflict {
+                actual: Some(Hash256::from_bytes([2u8; 32])),
+            },
             UpdateRefStatus::Conflict { actual: None },
-            UpdateRefStatus::Rejected { reason: "signed-only policy".into() },
+            UpdateRefStatus::Rejected {
+                reason: "signed-only policy".into(),
+            },
         ] {
             let f = Frame::UpdateRefAck {
                 name: "refs/heads/main".into(),

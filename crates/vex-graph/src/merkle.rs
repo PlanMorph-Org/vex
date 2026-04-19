@@ -17,9 +17,9 @@
 //! insertion order.
 
 use ahash::AHashMap;
-use vex_utils::{hash::hash_default, Hash256, Hasher, Profile, StringInterner, Tolerance};
-use vex_utils::hash::HashAlgo;
 use rayon::prelude::*;
+use vex_utils::hash::HashAlgo;
+use vex_utils::{hash::hash_default, Hash256, Hasher, Profile, StringInterner, Tolerance};
 
 use crate::geometry;
 use crate::ir::{Edge, IfcGraph, NodeId, Value};
@@ -68,11 +68,7 @@ pub struct GraphHashes {
 }
 
 /// Compute canonical hashes for every node and a root hash for the graph.
-pub fn hash_graph(
-    graph: &IfcGraph,
-    interner: &StringInterner,
-    cfg: HashConfig,
-) -> GraphHashes {
+pub fn hash_graph(graph: &IfcGraph, interner: &StringInterner, cfg: HashConfig) -> GraphHashes {
     // Geometry hashes are computed up-front and folded into each node seed so
     // that shape changes propagate through the WL refinement rounds.
     let geom = geometry::compute_geometry_hashes(graph, interner, &cfg.tolerance);
@@ -107,8 +103,7 @@ pub fn hash_graph(
             (*id, h.finalize())
         })
         .collect();
-    let mut current: AHashMap<NodeId, Hash256> =
-        AHashMap::with_capacity(seed_vec.len());
+    let mut current: AHashMap<NodeId, Hash256> = AHashMap::with_capacity(seed_vec.len());
     for (id, h) in seed_vec {
         current.insert(id, h);
     }
@@ -231,14 +226,13 @@ pub fn hash_bytes(bytes: &[u8]) -> Hash256 {
 mod tests {
     use super::*;
     use crate::builder::GraphBuilder;
-    use vex_ifc_parser::{ParseLimits, Parser};
     use std::io::Cursor;
+    use vex_ifc_parser::{ParseLimits, Parser};
 
     fn graph_from(src: &str) -> (IfcGraph, StringInterner) {
         let interner = StringInterner::new();
         let mut parser = Parser::new(Cursor::new(src), ParseLimits::default());
-        let g = GraphBuilder::build_from_parser(interner.clone(), &mut parser)
-            .expect("build");
+        let g = GraphBuilder::build_from_parser(interner.clone(), &mut parser).expect("build");
         (g, interner)
     }
 

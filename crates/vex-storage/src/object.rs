@@ -16,9 +16,9 @@
 //! compressed bytes, so changing compression parameters doesn't change
 //! identity.
 
-use vex_utils::{hash::HashAlgo, VexError, VexResult, Hash256, Hasher, Profile};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+use vex_utils::{hash::HashAlgo, Hash256, Hasher, Profile, VexError, VexResult};
 
 pub(crate) const MAGIC: &[u8; 4] = b"VEX0";
 pub(crate) const VERSION: u8 = 1;
@@ -149,10 +149,7 @@ pub struct SchemaManifest {
 }
 
 impl SchemaManifest {
-    pub fn new_with_clock(
-        ifc_schema: impl Into<String>,
-        tol: vex_utils::Tolerance,
-    ) -> Self {
+    pub fn new_with_clock(ifc_schema: impl Into<String>, tol: vex_utils::Tolerance) -> Self {
         let profile = Profile {
             tolerance_linear: tol.linear,
             tolerance_angular: tol.angular,
@@ -184,11 +181,7 @@ impl SchemaManifest {
 /// Returns `(content_hash, framed_bytes)` where `content_hash` is the stable
 /// identity (over kind + algo + uncompressed payload) and `framed_bytes` is
 /// what actually lands on disk.
-pub fn encode(
-    kind: ObjectKind,
-    payload: &[u8],
-    algo: HashAlgo,
-) -> VexResult<(Hash256, Vec<u8>)> {
+pub fn encode(kind: ObjectKind, payload: &[u8], algo: HashAlgo) -> VexResult<(Hash256, Vec<u8>)> {
     // Content hash.
     let mut h = Hasher::new(algo);
     h.update(&[kind as u8, algo as u8]);
@@ -196,8 +189,8 @@ pub fn encode(
     let hash = h.finalize();
 
     // Compress payload.
-    let compressed = zstd::encode_all(payload, 3)
-        .map_err(|e| VexError::Storage(format!("zstd: {e}")))?;
+    let compressed =
+        zstd::encode_all(payload, 3).map_err(|e| VexError::Storage(format!("zstd: {e}")))?;
 
     let mut framed = Vec::with_capacity(8 + compressed.len());
     framed.extend_from_slice(MAGIC);
@@ -236,8 +229,8 @@ pub fn decode(framed: &[u8], expected: Hash256) -> VexResult<(ObjectKind, HashAl
         }
     };
 
-    let payload = zstd::decode_all(&framed[8..])
-        .map_err(|e| VexError::Storage(format!("zstd: {e}")))?;
+    let payload =
+        zstd::decode_all(&framed[8..]).map_err(|e| VexError::Storage(format!("zstd: {e}")))?;
 
     let mut h = Hasher::new(algo);
     h.update(&[kind as u8, algo as u8]);

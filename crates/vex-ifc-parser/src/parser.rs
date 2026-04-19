@@ -31,7 +31,10 @@ pub enum Value {
     /// List of values (`(v1, v2, ...)`).
     List(Vec<Value>),
     /// Typed wrapper, e.g. `IFCLENGTHMEASURE(3.0)`. The name is uppercased.
-    Typed { name: String, value: Box<Value> },
+    Typed {
+        name: String,
+        value: Box<Value>,
+    },
 }
 
 /// A parsed but unresolved STEP entity.

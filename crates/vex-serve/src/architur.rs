@@ -45,7 +45,11 @@ impl ArchiturClient {
             std::env::var("VEX_FAIL_CLOSED").ok().as_deref(),
             Some("1") | Some("true") | Some("TRUE")
         );
-        Some(Self { base_url, secret, fail_closed })
+        Some(Self {
+            base_url,
+            secret,
+            fail_closed,
+        })
     }
 
     /// `POST /api/internal/vex/authorize`. Returns true if the user is
@@ -57,7 +61,10 @@ impl ArchiturClient {
             "operation": op,
         });
         let body_str = body.to_string();
-        let url = format!("{}/api/internal/vex/authorize", self.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/internal/vex/authorize",
+            self.base_url.trim_end_matches('/')
+        );
         let signature = self.sign(&body_str);
 
         match ureq::post(&url)
@@ -96,7 +103,10 @@ impl ArchiturClient {
                 return;
             }
         };
-        let url = format!("{}/api/internal/vex/ref-updated", self.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/internal/vex/ref-updated",
+            self.base_url.trim_end_matches('/')
+        );
         let signature = self.sign(&body_str);
         debug!(repo = %payload.repository_id, %payload.ref_name, "ref-updated → architur");
 

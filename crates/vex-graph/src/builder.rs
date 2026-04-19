@@ -10,9 +10,9 @@
 //! pass 2 runs.
 
 use ahash::AHashMap;
-use vex_ifc_parser::{Parser, RawEntity, Value as ParserValue};
-use vex_utils::{VexError, VexResult, Profile, StringInterner};
 use smallvec::SmallVec;
+use vex_ifc_parser::{Parser, RawEntity, Value as ParserValue};
+use vex_utils::{Profile, StringInterner, VexError, VexResult};
 
 use crate::ir::{Edge, EdgeKind, GlobalId, IfcGraph, Node, NodeId, Value};
 
@@ -94,10 +94,7 @@ impl GraphBuilder {
                 continue;
             }
             if id_map.contains_key(&entity.id) {
-                return Err(VexError::Graph(format!(
-                    "duplicate STEP id #{}",
-                    entity.id
-                )));
+                return Err(VexError::Graph(format!("duplicate STEP id #{}", entity.id)));
             }
             let type_name = self.interner.intern(&entity.type_name);
             let node_id = graph.insert_node(Node {
@@ -258,9 +255,9 @@ fn inline_value(
 /// `[0-9A-Za-z_$]`. We don't decode eagerly — equality on the string is the
 /// cheap and correct identity check.
 fn looks_like_global_id(s: &str) -> bool {
-    s.len() == 22 && s.bytes().all(|b| {
-        b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
-    })
+    s.len() == 22
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
 }
 
 /// Coarse edge classification by source-entity name prefix. The full IFC

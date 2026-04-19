@@ -46,7 +46,12 @@ pub fn compute_geometry_hashes(
         }
         let type_name = interner.resolve(node.type_name).to_ascii_uppercase();
         if type_name == "IFCEXTRUDEDAREASOLID" {
-            if let Some(h) = hash_extruded(node, out.get(&id).map_or(&[][..], Vec::as_slice), &hashes, tol) {
+            if let Some(h) = hash_extruded(
+                node,
+                out.get(&id).map_or(&[][..], Vec::as_slice),
+                &hashes,
+                tol,
+            ) {
                 hashes.insert(id, h);
             }
         }
@@ -135,8 +140,8 @@ fn value_as_real(v: &Value) -> Option<f64> {
 mod tests {
     use super::*;
     use crate::builder::GraphBuilder;
-    use vex_ifc_parser::{ParseLimits, Parser};
     use std::io::Cursor;
+    use vex_ifc_parser::{ParseLimits, Parser};
 
     const BLOCK_IFC: &str = "\
 ISO-10303-21;
@@ -152,8 +157,7 @@ END-ISO-10303-21;
     fn build(src: &str) -> (IfcGraph, StringInterner) {
         let interner = StringInterner::new();
         let mut parser = Parser::new(Cursor::new(src), ParseLimits::default());
-        let g = GraphBuilder::build_from_parser(interner.clone(), &mut parser)
-            .expect("build");
+        let g = GraphBuilder::build_from_parser(interner.clone(), &mut parser).expect("build");
         (g, interner)
     }
 

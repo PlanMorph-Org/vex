@@ -72,7 +72,10 @@ fn pluralize(label: &str, n: u32) -> String {
 /// Falls back to the original (lower-cased) string if no prefix present.
 fn friendly_type(type_name: &str) -> String {
     let lower = type_name.to_ascii_lowercase();
-    lower.strip_prefix("ifc").map(str::to_string).unwrap_or(lower)
+    lower
+        .strip_prefix("ifc")
+        .map(str::to_string)
+        .unwrap_or(lower)
 }
 
 #[cfg(test)]

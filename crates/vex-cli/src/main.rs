@@ -253,9 +253,7 @@ enum TagCmd {
 #[derive(Subcommand, Debug)]
 enum KeyCmd {
     /// Generate a new Ed25519 keypair under `.vex/keys/<name>`.
-    Gen {
-        name: String,
-    },
+    Gen { name: String },
     /// List available signing keys.
     List,
 }
@@ -280,8 +278,7 @@ fn init_tracing(verbose: u8) {
     };
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| level.into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| level.into()),
         )
         .with_target(false)
         .try_init();
@@ -323,10 +320,16 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 println!("staged tree {}", hash);
             }
         }
-        Cmd::Commit { message, author, email, sign } => {
+        Cmd::Commit {
+            message,
+            author,
+            email,
+            sign,
+        } => {
             let repo = Repository::open(&repo_hint).context("open")?;
             let hash = if let Some(key) = sign {
-                repo.commit_signed(message, author, email, &key).context("commit")?
+                repo.commit_signed(message, author, email, &key)
+                    .context("commit")?
             } else {
                 repo.commit(message, author, email).context("commit")?
             };
@@ -593,10 +596,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                             })
                         );
                     } else {
-                        println!(
-                            "generated key {name}: pub={}",
-                            hex::encode(pk.to_bytes())
-                        );
+                        println!("generated key {name}: pub={}", hex::encode(pk.to_bytes()));
                     }
                 }
                 KeyCmd::List => {
@@ -678,9 +678,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                     if cli.json {
                         let items: Vec<_> = list
                             .iter()
-                            .map(|(n, h)| {
-                                serde_json::json!({ "name": n, "target": h.to_hex() })
-                            })
+                            .map(|(n, h)| serde_json::json!({ "name": n, "target": h.to_hex() }))
                             .collect();
                         println!("{}", serde_json::to_string_pretty(&items)?);
                     } else {
@@ -692,10 +690,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 BranchCmd::Delete { name } => {
                     let removed = repo.branch_delete(&name).context("branch delete")?;
                     if cli.json {
-                        println!(
-                            "{}",
-                            serde_json::json!({ "ok": true, "deleted": removed })
-                        );
+                        println!("{}", serde_json::json!({ "ok": true, "deleted": removed }));
                     } else if removed {
                         println!("deleted branch {name}");
                     } else {
@@ -725,9 +720,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                     if cli.json {
                         let items: Vec<_> = list
                             .iter()
-                            .map(|(n, h)| {
-                                serde_json::json!({ "name": n, "target": h.to_hex() })
-                            })
+                            .map(|(n, h)| serde_json::json!({ "name": n, "target": h.to_hex() }))
                             .collect();
                         println!("{}", serde_json::to_string_pretty(&items)?);
                     } else {
@@ -739,10 +732,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 TagCmd::Delete { name } => {
                     let removed = repo.tag_delete(&name).context("tag delete")?;
                     if cli.json {
-                        println!(
-                            "{}",
-                            serde_json::json!({ "ok": true, "deleted": removed })
-                        );
+                        println!("{}", serde_json::json!({ "ok": true, "deleted": removed }));
                     } else if removed {
                         println!("deleted tag {name}");
                     } else {
@@ -764,7 +754,10 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                     })
                 );
             } else {
-                println!("checked out {reference} -> {} ({bytes} bytes)", out.display());
+                println!(
+                    "checked out {reference} -> {} ({bytes} bytes)",
+                    out.display()
+                );
             }
         }
         Cmd::Gc => {
@@ -831,7 +824,11 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 );
             }
         }
-        Cmd::Push { remote, refspec, force } => {
+        Cmd::Push {
+            remote,
+            refspec,
+            force,
+        } => {
             let repo = Repository::open(&repo_hint).context("open")?;
             let store = remote::RemoteStore::open(&repo_hint)?;
             let entry = store
@@ -845,7 +842,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 UpdateRefStatus::Ok => ("ok", String::new()),
                 UpdateRefStatus::Conflict { actual } => (
                     "conflict",
-                    actual.map(|h| h.to_hex()).unwrap_or_else(|| "absent".into()),
+                    actual
+                        .map(|h| h.to_hex())
+                        .unwrap_or_else(|| "absent".into()),
                 ),
                 UpdateRefStatus::Rejected { reason } => ("rejected", reason.clone()),
             };
@@ -886,9 +885,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             let report = transport::fetch(&repo, &url, &remote)?;
             // Fast-forward the local branch if the remote-tracking ref advanced
             // and the local tip is an ancestor of (or equal to) the remote tip.
-            let short = branch
-                .strip_prefix("refs/heads/")
-                .unwrap_or(&branch);
+            let short = branch.strip_prefix("refs/heads/").unwrap_or(&branch);
             let mirror = format!("refs/remotes/{remote}/{short}");
             let store = repo.store();
             let new_tip = store

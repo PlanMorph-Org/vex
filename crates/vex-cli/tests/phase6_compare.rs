@@ -46,7 +46,13 @@ fn seed_two_versions(tag: &str) -> (PathBuf, String, String) {
     vex_ok(&repo, &["init"]);
     vex_ok(
         &repo,
-        &["import", workspace_root().join("examples/tiny.min.ifc").to_str().unwrap()],
+        &[
+            "import",
+            workspace_root()
+                .join("examples/tiny.min.ifc")
+                .to_str()
+                .unwrap(),
+        ],
     );
     vex_ok(&repo, &["commit", "-m", "v1"]);
     vex_ok(
@@ -60,8 +66,7 @@ fn seed_two_versions(tag: &str) -> (PathBuf, String, String) {
         ],
     );
     vex_ok(&repo, &["commit", "-m", "v2"]);
-    let log: serde_json::Value =
-        serde_json::from_str(&vex_ok(&repo, &["--json", "log"])).unwrap();
+    let log: serde_json::Value = serde_json::from_str(&vex_ok(&repo, &["--json", "log"])).unwrap();
     let to = log[0]["commit"].as_str().unwrap().to_string();
     let from = log[1]["commit"].as_str().unwrap().to_string();
     (repo, from, to)
@@ -76,7 +81,10 @@ fn compare_text_summary_matches_expectation() {
         out.contains("renamed") && out.contains("added"),
         "expected renamed+added in summary, got: {out}"
     );
-    assert!(out.contains("wall"), "expected 'wall' in summary, got: {out}");
+    assert!(
+        out.contains("wall"),
+        "expected 'wall' in summary, got: {out}"
+    );
     assert!(
         out.contains("column"),
         "expected 'column' in summary, got: {out}"
@@ -117,10 +125,7 @@ fn compare_json_schema_is_stable() {
     assert!(kinds.contains(&"renamed"));
 
     // Hints + deltas show up on the Renamed element only.
-    let renamed = elements
-        .iter()
-        .find(|e| e["kind"] == "renamed")
-        .unwrap();
+    let renamed = elements.iter().find(|e| e["kind"] == "renamed").unwrap();
     assert!(
         renamed["hint"]
             .as_str()
@@ -150,7 +155,13 @@ fn changes_at_root_reports_no_previous_version() {
     vex_ok(&repo, &["init"]);
     vex_ok(
         &repo,
-        &["import", workspace_root().join("examples/tiny.min.ifc").to_str().unwrap()],
+        &[
+            "import",
+            workspace_root()
+                .join("examples/tiny.min.ifc")
+                .to_str()
+                .unwrap(),
+        ],
     );
     vex_ok(&repo, &["commit", "-m", "first"]);
     let out = vex_ok(&repo, &["changes"]);
@@ -175,14 +186,15 @@ fn compare_json_matches_golden() {
     actual["from"] = serde_json::Value::String("<from>".into());
     actual["to"] = serde_json::Value::String("<to>".into());
 
-    let golden_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/visual_diff.golden.json");
+    let golden_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/visual_diff.golden.json");
     let golden_text = std::fs::read_to_string(&golden_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", golden_path.display()));
     let golden: serde_json::Value = serde_json::from_str(&golden_text).unwrap();
 
     assert_eq!(
-        actual, golden,
+        actual,
+        golden,
         "VisualDiff JSON drifted from golden fixture.\n\
          Regenerate intentionally with:\n\
          vex --json compare <a> <b> | <redact from/to> > {}\n\

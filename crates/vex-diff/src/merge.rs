@@ -12,9 +12,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ahash::AHashMap;
+use serde::{Deserialize, Serialize};
 use vex_graph::{hash_graph, ir::IfcGraph, HashConfig, NodeId};
 use vex_utils::StringInterner;
-use serde::{Deserialize, Serialize};
 
 use crate::{resolve, PropDelta, SerValue};
 
@@ -198,12 +198,8 @@ pub fn merge_graphs(
                             });
                             result.summary.auto_applied += 1;
                         } else {
-                            let ours_deltas = diff_props(
-                                base, base_i, bn, ours, ours_i, on,
-                            );
-                            let theirs_deltas = diff_props(
-                                base, base_i, bn, theirs, theirs_i, tn,
-                            );
+                            let ours_deltas = diff_props(base, base_i, bn, ours, ours_i, on);
+                            let theirs_deltas = diff_props(base, base_i, bn, theirs, theirs_i, tn);
                             // Find incompatible overlap.
                             if props_compatible(&ours_deltas, &theirs_deltas) {
                                 // Non-overlapping property changes → take union.
@@ -344,11 +340,7 @@ fn type_name_of(g: &IfcGraph, i: &StringInterner, id: NodeId) -> String {
         .unwrap_or_default()
 }
 
-fn node_props_serialized(
-    g: &IfcGraph,
-    i: &StringInterner,
-    id: NodeId,
-) -> Vec<(String, SerValue)> {
+fn node_props_serialized(g: &IfcGraph, i: &StringInterner, id: NodeId) -> Vec<(String, SerValue)> {
     g.nodes
         .get(id)
         .map(|n| {
@@ -458,7 +450,11 @@ pub fn render_merge_text(r: &MergeResult) -> String {
                     "! modify/delete {type_name} {identity:?} (modified on {side_modified:?})",
                 );
             }
-            Conflict::AddAdd { identity, type_name, .. } => {
+            Conflict::AddAdd {
+                identity,
+                type_name,
+                ..
+            } => {
                 let _ = writeln!(out, "! add/add {type_name} {identity:?}");
             }
         }

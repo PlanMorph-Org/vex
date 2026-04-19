@@ -91,9 +91,7 @@ impl VexProject {
         author_name: impl Into<String>,
         author_email: impl Into<String>,
     ) -> VexResult<String> {
-        let h = self
-            .repo
-            .commit(message, author_name, author_email)?;
+        let h = self.repo.commit(message, author_name, author_email)?;
         Ok(h.to_hex())
     }
 
@@ -123,7 +121,7 @@ impl VexProject {
                     parents: c.parents.iter().map(|p| p.to_hex()).collect(),
                 }
             })
-            .collect()) 
+            .collect())
     }
 
     /// Convenience: changes between the previous version and HEAD. Returns

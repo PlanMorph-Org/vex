@@ -52,7 +52,12 @@ impl SshUrl {
         }
         let repo = path.trim_end_matches('/').to_string();
         validate_repo_path(&repo)?;
-        Ok(Self { user, host, port, repo })
+        Ok(Self {
+            user,
+            host,
+            port,
+            repo,
+        })
     }
 }
 
@@ -91,8 +96,8 @@ impl RemoteStore {
         let entries = if path.exists() {
             let raw = std::fs::read_to_string(&path)
                 .with_context(|| format!("read {}", path.display()))?;
-            let parsed: RemotesFile = toml::from_str(&raw)
-                .with_context(|| format!("parse {}", path.display()))?;
+            let parsed: RemotesFile =
+                toml::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
             parsed.remote
         } else {
             BTreeMap::new()
@@ -109,7 +114,11 @@ impl RemoteStore {
     }
 
     pub(crate) fn add(&mut self, name: &str, url: &str) -> Result<()> {
-        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
             bail!("invalid remote name: {name}");
         }
         if self.entries.contains_key(name) {
@@ -117,7 +126,12 @@ impl RemoteStore {
         }
         // Validate the URL up-front so the file never holds garbage.
         let _ = SshUrl::parse(url)?;
-        self.entries.insert(name.to_string(), RemoteEntry { url: url.to_string() });
+        self.entries.insert(
+            name.to_string(),
+            RemoteEntry {
+                url: url.to_string(),
+            },
+        );
         self.persist()
     }
 
@@ -132,8 +146,10 @@ impl RemoteStore {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        let body = toml::to_string_pretty(&RemotesFile { remote: self.entries.clone() })
-            .context("serialize remotes.toml")?;
+        let body = toml::to_string_pretty(&RemotesFile {
+            remote: self.entries.clone(),
+        })
+        .context("serialize remotes.toml")?;
         std::fs::write(&self.path, body)
             .with_context(|| format!("write {}", self.path.display()))?;
         Ok(())

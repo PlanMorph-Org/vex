@@ -35,38 +35,34 @@ fn ensure_serve_built(serve: &Path) {
 }
 
 fn write_ssh_shim(dir: &Path, serve: &Path, repo_root: &Path) -> PathBuf {
-    // The shim ignores everything before the literal `vex-serve` argument
-    // and calls the real binary with the supplied repo path.
-    let path = dir.join("ssh-shim.sh");
-    let body = format!(
-        r#"#!/usr/bin/env bash
-set -euo pipefail
-echo "shim invoked at $(date +%s.%N) args: $*" >> "{log}"
-seen_serve=0
-for arg in "$@"; do
-  if [ "$seen_serve" = "1" ]; then
-    break
-  fi
-  if [ "$arg" = "vex-serve" ]; then
-    seen_serve=1
-  fi
-done
-echo "exec serve --repo-root {root}" >> "{log}"
-exec "{serve}" --repo-root "{root}"
-"#,
-        serve = serve.display(),
-        root = repo_root.display(),
-        log = dir.join("shim.log").display(),
-    );
-    std::fs::write(&path, body).unwrap();
-    let mut perms = std::fs::metadata(&path).unwrap().permissions();
-    #[cfg(unix)]
+    // The shim ignores SSH arguments and directly invokes vex-serve.
+    // On Windows we use a .cmd batch file; everywhere else a bash script.
+    #[cfg(windows)]
     {
+        let path = dir.join("ssh-shim.cmd");
+        let body = format!(
+            "@echo off\r\n\"{serve}\" --repo-root \"{root}\"\r\n",
+            serve = serve.display(),
+            root = repo_root.display(),
+        );
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+    #[cfg(not(windows))]
+    {
+        let path = dir.join("ssh-shim.sh");
+        let body = format!(
+            "#!/usr/bin/env bash\nset -euo pipefail\nexec \"{serve}\" --repo-root \"{root}\"\n",
+            serve = serve.display(),
+            root = repo_root.display(),
+        );
+        std::fs::write(&path, body).unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
         use std::os::unix::fs::PermissionsExt;
         perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).unwrap();
+        path
     }
-    std::fs::set_permissions(&path, perms).unwrap();
-    path
 }
 
 fn run_vex(vex: &Path, args: &[&str], cwd: &Path, ssh_shim: &Path) -> (bool, String, String) {
@@ -118,7 +114,13 @@ fn cli_clone_fetch_push_pull_round_trip() {
     let url = "ssh://git@example.invalid/acme/tower";
     let (ok, out, err) = run_vex(
         &vex,
-        &["clone", "--remote", "origin", url, clone_dir.to_str().unwrap()],
+        &[
+            "clone",
+            "--remote",
+            "origin",
+            url,
+            clone_dir.to_str().unwrap(),
+        ],
         workdir.path(),
         &ssh_shim,
     );
@@ -186,7 +188,10 @@ fn cli_clone_fetch_push_pull_round_trip() {
             props: vec![],
         };
         let other_h = server_repo.store().put_blob(&other).unwrap();
-        server_repo.store().set_ref("refs/heads/feature-x", other_h).unwrap();
+        server_repo
+            .store()
+            .set_ref("refs/heads/feature-x", other_h)
+            .unwrap();
     }
     let (ok, out, _err) = run_vex(
         &vex,

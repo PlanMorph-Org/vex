@@ -131,19 +131,12 @@ fn merge_clean_requires_strategy_then_creates() {
     vex_ok(&repo_path, &["commit", "-m", "ours"]);
     // Side B: tiny-merge-theirs as a divergent commit off `base`.
     let theirs_ifc = workspace_root().join("examples/tiny-merge-theirs.min.ifc");
-    let _theirs = divergent_commit(
-        &repo_path,
-        &theirs_ifc,
-        base,
-        "refs/heads/theirs",
-        "theirs",
-    );
+    let _theirs = divergent_commit(&repo_path, &theirs_ifc, base, "refs/heads/theirs", "theirs");
 
     // Without --strategy: clean but no commit recorded.
     let out = vex_ok(&repo_path, &["merge", "main", "theirs"]);
     assert!(
-        out.contains("Clean merge")
-            || out.contains("re-run with --strategy"),
+        out.contains("Clean merge") || out.contains("re-run with --strategy"),
         "expected clean-without-commit message, got: {out}"
     );
 
@@ -179,13 +172,7 @@ fn merge_ff_only_refuses_non_ff() {
     vex_ok(&repo_path, &["import", v2.to_str().unwrap()]);
     vex_ok(&repo_path, &["commit", "-m", "ours"]);
     let theirs_ifc = workspace_root().join("examples/tiny-merge-theirs.min.ifc");
-    let _ = divergent_commit(
-        &repo_path,
-        &theirs_ifc,
-        base,
-        "refs/heads/theirs",
-        "theirs",
-    );
+    let _ = divergent_commit(&repo_path, &theirs_ifc, base, "refs/heads/theirs", "theirs");
 
     let (ok, out, err) = vex(&repo_path, &["merge", "main", "theirs", "--ff-only"]);
     assert!(!ok, "--ff-only must refuse, but succeeded: {out}");

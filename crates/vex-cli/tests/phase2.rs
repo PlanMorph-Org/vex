@@ -116,9 +116,7 @@ fn merge_clean_nonoverlapping_edits() {
     let (ok, out, _err) = vex(&repo_dir, &["merge", &ours_hash, &theirs_hash]);
     assert!(ok, "merge failed: {out}");
     assert!(
-        out.contains("Fast-forward")
-            || out.contains("0 conflicts")
-            || out.contains("Clean merge"),
+        out.contains("Fast-forward") || out.contains("0 conflicts") || out.contains("Clean merge"),
         "expected fast-forward or clean merge, got: {out}"
     );
 

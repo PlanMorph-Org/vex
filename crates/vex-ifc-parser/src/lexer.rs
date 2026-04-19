@@ -88,19 +88,17 @@ impl<R: BufRead> Lexer<R> {
             return Ok(Some(b));
         }
         let mut buf = [0u8; 1];
-        let n = self
-            .reader
-            .read(&mut buf)
-            .map_err(|e| VexError::Io { path: None, source: e })?;
+        let n = self.reader.read(&mut buf).map_err(|e| VexError::Io {
+            path: None,
+            source: e,
+        })?;
         if n == 0 {
             return Ok(None);
         }
         self.bytes_read += 1;
         if let Some(cap) = self.limits.max_input_bytes {
             if self.bytes_read > cap {
-                return Err(VexError::ParseLimit(format!(
-                    "input exceeded {cap} bytes"
-                )));
+                return Err(VexError::ParseLimit(format!("input exceeded {cap} bytes")));
             }
         }
         let b = buf[0];
@@ -324,9 +322,9 @@ impl<R: BufRead> Lexer<R> {
                                         return Ok(());
                                     }
                                     _ => {
-                                        return Err(self.err(
-                                            "unexpected content inside \\X2/\\X4 body",
-                                        ));
+                                        return Err(
+                                            self.err("unexpected content inside \\X2/\\X4 body")
+                                        );
                                     }
                                 }
                             }
@@ -337,9 +335,9 @@ impl<R: BufRead> Lexer<R> {
                             if let Some(ch) = char::from_u32(code) {
                                 out.push(ch);
                             } else {
-                                return Err(self.err(format!(
-                                    "invalid unicode codepoint U+{code:04X}"
-                                )));
+                                return Err(
+                                    self.err(format!("invalid unicode codepoint U+{code:04X}"))
+                                );
                             }
                         }
                     }

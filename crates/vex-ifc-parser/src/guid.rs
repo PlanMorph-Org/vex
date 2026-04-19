@@ -10,8 +10,7 @@
 use vex_utils::VexError;
 
 /// 64-symbol alphabet used by IfcGloballyUniqueId.
-const ALPHA: &[u8; 64] =
-    b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
+const ALPHA: &[u8; 64] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
 
 /// Decode an IFC GlobalId into its 16-byte representation.
 ///
@@ -31,7 +30,10 @@ pub fn decode_global_id(s: &str) -> Result<[u8; 16], VexError> {
         // table at -O3, and this is not on any hot path (GlobalIds are parsed
         // once per entity).
         let v = ALPHA.iter().position(|&c| c == b).ok_or_else(|| {
-            VexError::Other(format!("invalid IfcGuid char at position {i}: {:?}", b as char))
+            VexError::Other(format!(
+                "invalid IfcGuid char at position {i}: {:?}",
+                b as char
+            ))
         })?;
         vals[i] = v as u8;
     }

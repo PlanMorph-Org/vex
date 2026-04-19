@@ -208,7 +208,12 @@ pub fn serve_session<R: Read, W: Write>(
         Err(err) => {
             // Best-effort: tell the client what happened. Ignore secondary
             // I/O errors — the underlying socket may already be closed.
-            let _ = write_frame(writer, &Frame::Error { message: err.to_string() });
+            let _ = write_frame(
+                writer,
+                &Frame::Error {
+                    message: err.to_string(),
+                },
+            );
             Err(err)
         }
     }
@@ -248,14 +253,16 @@ fn serve_session_inner<R: Read, W: Write>(
 
     // Per-session authorization. Skipped when no architur client is
     // configured (local dev) or when the repo has no architur sidecar.
-    if let (Some(client), Some(repo_id), Some(user_id)) =
-        (&config.architur, architur_repo_id.as_deref(), config.user_id.as_deref())
-    {
+    if let (Some(client), Some(repo_id), Some(user_id)) = (
+        &config.architur,
+        architur_repo_id.as_deref(),
+        config.user_id.as_deref(),
+    ) {
         let op = if config.allow_push { "push" } else { "fetch" };
         if !client.authorize(user_id, repo_id, op) {
-            return Err(ServeError::Protocol(ProtocolError::Unexpected(
-                format!("architur denied {op} for repo {repo_id}"),
-            )));
+            return Err(ServeError::Protocol(ProtocolError::Unexpected(format!(
+                "architur denied {op} for repo {repo_id}"
+            ))));
         }
     }
 
@@ -371,20 +378,16 @@ fn serve_session_inner<R: Read, W: Write>(
                     config.architur.as_ref(),
                     architur_repo_id.as_deref(),
                 ) {
-                    let commit = repo
-                        .store()
-                        .get_commit(new)
-                        .ok()
-                        .map(|c| RefUpdatedCommit {
-                            commit_hash: hex_hash(new),
-                            parent_hash: c.parents.first().map(|h| hex_hash(*h)),
-                            tree_hash: hex_hash(c.tree),
-                            author_name: c.author.name.clone(),
-                            author_email: c.author.email.clone(),
-                            message: c.message.clone(),
-                            authored_at: rfc3339_from_unix(c.timestamp),
-                            pushed_by_user_id: config.user_id.clone(),
-                        });
+                    let commit = repo.store().get_commit(new).ok().map(|c| RefUpdatedCommit {
+                        commit_hash: hex_hash(new),
+                        parent_hash: c.parents.first().map(|h| hex_hash(*h)),
+                        tree_hash: hex_hash(c.tree),
+                        author_name: c.author.name.clone(),
+                        author_email: c.author.email.clone(),
+                        message: c.message.clone(),
+                        authored_at: rfc3339_from_unix(c.timestamp),
+                        pushed_by_user_id: config.user_id.clone(),
+                    });
                     let payload = RefUpdatedPayload {
                         repository_id: repo_id.to_string(),
                         ref_name: name.clone(),
@@ -407,7 +410,10 @@ fn serve_session_inner<R: Read, W: Write>(
             }
 
             // The server should never receive these as commands.
-            Frame::Hello { .. } | Frame::HelloOk { .. } | Frame::Refs(_) | Frame::UpdateRefAck { .. } => {
+            Frame::Hello { .. }
+            | Frame::HelloOk { .. }
+            | Frame::Refs(_)
+            | Frame::UpdateRefAck { .. } => {
                 return Err(ServeError::Protocol(ProtocolError::Unexpected(
                     "client sent server-only frame".into(),
                 )));

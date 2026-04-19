@@ -94,7 +94,10 @@ pub fn classify(report: &DiffReport, from: &str, to: &str) -> VisualDiff {
 
     for change in &report.changes {
         match change {
-            vex_diff::Change::Added { identity, type_name } => {
+            vex_diff::Change::Added {
+                identity,
+                type_name,
+            } => {
                 counts.added += 1;
                 elements.push(ElementChange {
                     id: identity.clone(),
@@ -104,7 +107,10 @@ pub fn classify(report: &DiffReport, from: &str, to: &str) -> VisualDiff {
                     hint: None,
                 });
             }
-            vex_diff::Change::Removed { identity, type_name } => {
+            vex_diff::Change::Removed {
+                identity,
+                type_name,
+            } => {
                 counts.removed += 1;
                 elements.push(ElementChange {
                     id: identity.clone(),
@@ -158,9 +164,12 @@ fn classify_modified(
         return (ChangeKind::Modified, None);
     }
     let meaning_of = |key: &str| slot_meaning(type_name, key);
-    let all_renames = deltas
-        .iter()
-        .all(|d| matches!(meaning_of(&d.key), Some(SlotMeaning::Name | SlotMeaning::Description | SlotMeaning::Tag)));
+    let all_renames = deltas.iter().all(|d| {
+        matches!(
+            meaning_of(&d.key),
+            Some(SlotMeaning::Name | SlotMeaning::Description | SlotMeaning::Tag)
+        )
+    });
     let all_moves = deltas
         .iter()
         .all(|d| matches!(meaning_of(&d.key), Some(SlotMeaning::Placement)));
@@ -360,7 +369,10 @@ mod tests {
                 modified: 1,
             },
         };
-        assert_eq!(classify(&r, "a", "b").elements[0].kind, ChangeKind::Modified);
+        assert_eq!(
+            classify(&r, "a", "b").elements[0].kind,
+            ChangeKind::Modified
+        );
 
         // Mixed Name + Placement → generic Modified (not all-renames, not
         // all-moves).
@@ -388,7 +400,10 @@ mod tests {
                 modified: 1,
             },
         };
-        assert_eq!(classify(&r2, "a", "b").elements[0].kind, ChangeKind::Modified);
+        assert_eq!(
+            classify(&r2, "a", "b").elements[0].kind,
+            ChangeKind::Modified
+        );
     }
 
     #[test]

@@ -27,9 +27,7 @@ pub mod merge;
 
 pub use merge::{merge_graphs, render_merge_text, Conflict, MergeOp, MergeResult, Side};
 
-use vex_graph::{
-    hash_graph, HashConfig, IfcGraph, Node, NodeId, Value,
-};
+use vex_graph::{hash_graph, HashConfig, IfcGraph, Node, NodeId, Value};
 use vex_utils::{Hash256, StringInterner};
 
 /// Which semantic layer a change occupies. Drives rendering + merge rules.
@@ -227,12 +225,7 @@ fn best_identity(node: &Node, hash: Hash256) -> Identity {
     }
 }
 
-fn diff_properties(
-    a: &Node,
-    ia: &StringInterner,
-    b: &Node,
-    ib: &StringInterner,
-) -> Vec<PropDelta> {
+fn diff_properties(a: &Node, ia: &StringInterner, b: &Node, ib: &StringInterner) -> Vec<PropDelta> {
     let mut map_a: BTreeMap<String, &Value> = BTreeMap::new();
     for (k, v) in &a.props {
         map_a.insert(ia.resolve(*k).to_string(), v);
@@ -322,10 +315,16 @@ pub fn render_text(report: &DiffReport) -> String {
     let mut out = String::new();
     for c in &report.changes {
         match c {
-            Change::Added { identity, type_name } => {
+            Change::Added {
+                identity,
+                type_name,
+            } => {
                 out.push_str(&format!("+ {type_name} {}\n", identity_text(identity)));
             }
-            Change::Removed { identity, type_name } => {
+            Change::Removed {
+                identity,
+                type_name,
+            } => {
                 out.push_str(&format!("- {type_name} {}\n", identity_text(identity)));
             }
             Change::Modified {
@@ -340,7 +339,10 @@ pub fn render_text(report: &DiffReport) -> String {
                     layer
                 ));
                 for d in deltas {
-                    out.push_str(&format!("    {} : {:?} -> {:?}\n", d.key, d.before, d.after));
+                    out.push_str(&format!(
+                        "    {} : {:?} -> {:?}\n",
+                        d.key, d.before, d.after
+                    ));
                 }
             }
         }
@@ -363,9 +365,9 @@ fn identity_text(id: &Identity) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
     use vex_graph::GraphBuilder;
     use vex_ifc_parser::{ParseLimits, Parser};
-    use std::io::Cursor;
 
     fn build(src: &str) -> (IfcGraph, StringInterner) {
         let i = StringInterner::new();

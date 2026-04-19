@@ -37,9 +37,9 @@ impl IfcHeader {
 /// The lexer is left positioned just past `ENDSEC;` of the HEADER section.
 pub(crate) fn parse_header<R: BufRead>(lx: &mut Lexer<R>) -> VexResult<IfcHeader> {
     expect_ident(lx, "ISO")?; // ISO-10303-21 tokens often arrive split; we accept loosely.
-    // The "ISO-10303-21" banner is not strictly a single STEP ident — real files
-    // write it as `ISO-10303-21;`. Our lexer will see `ISO`, `-`, `10303`, `-`, `21`, `;`.
-    // We just skip tokens until the first `;` for forgiveness.
+                              // The "ISO-10303-21" banner is not strictly a single STEP ident — real files
+                              // write it as `ISO-10303-21;`. Our lexer will see `ISO`, `-`, `10303`, `-`, `21`, `;`.
+                              // We just skip tokens until the first `;` for forgiveness.
     skip_until_semi(lx)?;
     expect_ident(lx, "HEADER")?;
     expect(lx, Token::Semi)?;

@@ -11,9 +11,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use anyhow::{anyhow, bail, Context, Result};
 
 use vex_core::Repository;
-use vex_protocol::{
-    read_frame, write_frame, Frame, PackEntry, UpdateRefStatus, PROTOCOL_VERSION,
-};
+use vex_protocol::{read_frame, write_frame, Frame, PackEntry, UpdateRefStatus, PROTOCOL_VERSION};
 use vex_storage::{object, ObjectKind};
 use vex_utils::Hash256;
 
@@ -57,7 +55,11 @@ impl SshChannel {
             .with_context(|| format!("spawn `{}`", ssh_bin))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?);
-        Ok(Self { child, stdin, stdout })
+        Ok(Self {
+            child,
+            stdin,
+            stdout,
+        })
     }
 
     fn close(mut self) -> Result<()> {
@@ -98,7 +100,11 @@ fn handshake<C: Read + Write>(ch: &mut C, repo: &str) -> Result<String> {
         },
     )?;
     match read_frame(ch)? {
-        Frame::HelloOk { protocol, server_version, .. } => {
+        Frame::HelloOk {
+            protocol,
+            server_version,
+            ..
+        } => {
             if protocol != PROTOCOL_VERSION {
                 bail!("server speaks protocol v{protocol}, we speak v{PROTOCOL_VERSION}");
             }
@@ -138,7 +144,10 @@ pub(crate) fn fetch(repo: &Repository, url: &SshUrl, remote_name: &str) -> Resul
     let wants: Vec<Hash256> = refs.iter().map(|(_, h)| *h).collect();
     if wants.is_empty() {
         ch.close()?;
-        return Ok(FetchReport { received: 0, refs_updated: 0 });
+        return Ok(FetchReport {
+            received: 0,
+            refs_updated: 0,
+        });
     }
 
     write_frame(&mut ch, &Frame::Want(wants.clone()))?;
@@ -186,7 +195,10 @@ pub(crate) fn fetch(repo: &Repository, url: &SshUrl, remote_name: &str) -> Resul
     }
 
     ch.close()?;
-    Ok(FetchReport { received, refs_updated })
+    Ok(FetchReport {
+        received,
+        refs_updated,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -217,7 +229,11 @@ pub(crate) fn push(
     // Compute the local view of the server: the remote-tracking ref.
     let short = remote_ref.strip_prefix("refs/heads/").unwrap_or(remote_ref);
     let tracking = format!("refs/remotes/{remote_name}/{short}");
-    let expected_old: Option<Hash256> = if force { None } else { store.get_ref(&tracking)? };
+    let expected_old: Option<Hash256> = if force {
+        None
+    } else {
+        store.get_ref(&tracking)?
+    };
 
     let mut ch = SshChannel::open(url)?;
     let _server = handshake(&mut ch, &url.repo)?;
@@ -236,7 +252,12 @@ pub(crate) fn push(
         entries.push(PackEntry { hash: *h, bytes });
     }
 
-    write_frame(&mut ch, &Frame::PackStart { entry_count: entries.len() as u64 })?;
+    write_frame(
+        &mut ch,
+        &Frame::PackStart {
+            entry_count: entries.len() as u64,
+        },
+    )?;
     for chunk in entries.chunks(256) {
         write_frame(&mut ch, &Frame::PackChunk(chunk.to_vec()))?;
     }
@@ -262,7 +283,10 @@ pub(crate) fn push(
     }
 
     ch.close()?;
-    Ok(PushReport { sent: to_send.len(), status })
+    Ok(PushReport {
+        sent: to_send.len(),
+        status,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -321,14 +345,14 @@ fn object_children(repo: &Repository, h: Hash256) -> Result<Vec<Hash256>> {
     let mut out = Vec::new();
     match kind {
         ObjectKind::Commit => {
-            let c: vex_storage::Commit = bincode::deserialize(&payload)
-                .map_err(|e| anyhow!("decode commit {h}: {e}"))?;
+            let c: vex_storage::Commit =
+                bincode::deserialize(&payload).map_err(|e| anyhow!("decode commit {h}: {e}"))?;
             out.push(c.tree);
             out.extend(c.parents);
         }
         ObjectKind::Tree => {
-            let t: vex_storage::Tree = bincode::deserialize(&payload)
-                .map_err(|e| anyhow!("decode tree {h}: {e}"))?;
+            let t: vex_storage::Tree =
+                bincode::deserialize(&payload).map_err(|e| anyhow!("decode tree {h}: {e}"))?;
             for entry in t.entries {
                 // Mirror the server's collect_reachable: only blob_hash is a
                 // stored object; node_hash is a graph-identity tag.
@@ -353,10 +377,10 @@ pub(crate) fn clone(url: &SshUrl, dir: &Path, remote_name: &str) -> Result<Fetch
     // commands work without re-passing the URL.
     let mut remotes = crate::remote::RemoteStore::open(dir)?;
     if remotes.get(remote_name).is_none() {
-        remotes.add(remote_name, &format!(
-            "ssh://{}@{}:{}/{}",
-            url.user, url.host, url.port, url.repo
-        ))?;
+        remotes.add(
+            remote_name,
+            &format!("ssh://{}@{}:{}/{}", url.user, url.host, url.port, url.repo),
+        )?;
     }
     let report = fetch(&repo, url, remote_name)?;
     let mirror = format!("refs/remotes/{remote_name}/main");

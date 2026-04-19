@@ -16,9 +16,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ed25519_dalek::{Signer as _, SigningKey, Verifier as _, VerifyingKey};
 use vex_storage::{Commit, Signature};
 use vex_utils::{VexError, VexResult};
-use ed25519_dalek::{Signer as _, SigningKey, Verifier as _, VerifyingKey};
 
 pub const SIGNATURE_ALGO: &str = "ed25519";
 
@@ -92,17 +92,12 @@ fn signing_bytes(commit: &Commit) -> VexResult<Vec<u8>> {
     // attached.
     let mut c = commit.clone();
     c.signature = None;
-    bincode::serialize(&c)
-        .map_err(|e| VexError::Storage(format!("commit serialize: {e}")))
+    bincode::serialize(&c).map_err(|e| VexError::Storage(format!("commit serialize: {e}")))
 }
 
 /// Sign a commit in place with the named key. Returns the verifying key so
 /// callers can persist / display it.
-pub fn sign_commit(
-    vex_dir: &Path,
-    key_name: &str,
-    commit: &mut Commit,
-) -> VexResult<VerifyingKey> {
+pub fn sign_commit(vex_dir: &Path, key_name: &str, commit: &mut Commit) -> VexResult<VerifyingKey> {
     let sk = load_signing_key(vex_dir, key_name)?;
     let body = signing_bytes(commit)?;
     let sig = sk.sign(&body);
@@ -180,7 +175,7 @@ fn set_private_perms(_path: &Path) -> VexResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vex_storage::{Identity};
+    use vex_storage::Identity;
     use vex_utils::Hash256;
 
     fn sample_commit() -> Commit {

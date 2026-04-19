@@ -101,10 +101,7 @@ fn tag_create_list_delete() {
 fn checkout_produces_reparsable_ifc() {
     let repo = seed_repo("checkout");
     let out = repo.join("out.ifc");
-    vex_ok(
-        &repo,
-        &["checkout", "HEAD", "-o", out.to_str().unwrap()],
-    );
+    vex_ok(&repo, &["checkout", "HEAD", "-o", out.to_str().unwrap()]);
     // Re-import the checked-out file into a fresh repo and verify it commits.
     let repo2 = tempdir("checkout2");
     vex_ok(&repo2, &["init"]);
@@ -138,7 +135,10 @@ fn gc_removes_unreachable_objects() {
     // Delete the unused branch and any staging ref remnants.
     vex_ok(&repo, &["branch", "delete", "side"]);
     let gc_out = vex_ok(&repo, &["gc"]);
-    assert!(gc_out.contains("kept") && gc_out.contains("deleted"), "gc: {gc_out}");
+    assert!(
+        gc_out.contains("kept") && gc_out.contains("deleted"),
+        "gc: {gc_out}"
+    );
 }
 
 #[test]
@@ -163,7 +163,10 @@ fn verify_detects_tampered_store() {
 
     // Now CLI verify must fail loudly.
     let (ok, out, err) = vex(&repo, &["verify"]);
-    assert!(!ok, "expected verify to fail on tampered store; out={out} err={err}");
+    assert!(
+        !ok,
+        "expected verify to fail on tampered store; out={out} err={err}"
+    );
     let combined = format!("{out}\n{err}");
     assert!(
         combined.to_lowercase().contains("hash")

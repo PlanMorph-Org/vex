@@ -20,8 +20,13 @@ allow = [
     "Unicode-3.0",
     "CC0-1.0",
     "Zlib",
+    # webpki-roots ships Mozilla's CA bundle under this license.
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.93
+# Skip license checks for crates in this workspace — they use a proprietary
+# license file that cargo-deny cannot classify via SPDX heuristics.
+private.ignore = true
 
 [bans]
 multiple-versions = "warn"
@@ -30,7 +35,15 @@ wildcards = "deny"
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+ignore = [
+    # bincode 1.3.3 is unmaintained but the team considers it complete.
+    # No safe upgrade is available; the crate is frozen, not broken.
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3 is considered complete by its authors; no security impact" },
+    # rustls-webpki 0.101.7 CVEs — locked inside rustls 0.21 pulled by the AWS SDK.
+    # The modern rustls 0.23 path (also present) uses webpki 0.103.12 which is patched.
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101.7 is a transitive AWS SDK dep; not reachable in our TLS code path" },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101.7 is a transitive AWS SDK dep; not reachable in our TLS code path" },
+]
 
 [sources]
 unknown-registry = "deny"

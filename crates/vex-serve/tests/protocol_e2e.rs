@@ -11,9 +11,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use vex_core::Repository;
-use vex_protocol::{
-    read_frame, write_frame, Frame, PackEntry, UpdateRefStatus, PROTOCOL_VERSION,
-};
+use vex_protocol::{read_frame, write_frame, Frame, PackEntry, UpdateRefStatus, PROTOCOL_VERSION};
 use vex_serve::{serve_session, ServeConfig};
 use vex_storage::{Blob, ObjectKind};
 use vex_utils::Hash256;
@@ -30,7 +28,13 @@ struct PipeWriter {
 
 fn pipe() -> (PipeReader, PipeWriter) {
     let (tx, rx) = mpsc::channel();
-    (PipeReader { rx, buf: Vec::new() }, PipeWriter { tx })
+    (
+        PipeReader {
+            rx,
+            buf: Vec::new(),
+        },
+        PipeWriter { tx },
+    )
 }
 
 impl Read for PipeReader {
@@ -55,7 +59,9 @@ impl Write for PipeWriter {
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed"))?;
         Ok(b.len())
     }
-    fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// Build a tiny but real repository on disk: init + put a Blob + set a ref.
@@ -222,19 +228,21 @@ fn push_round_trips_a_new_blob_and_advances_a_branch() {
         props: vec![],
     };
     let payload = bincode::serialize(&blob).unwrap();
-    let (hash, framed) =
-        object::encode(ObjectKind::Blob, &payload, vex_utils::hash::HashAlgo::DEFAULT)
-            .expect("encode");
+    let (hash, framed) = object::encode(
+        ObjectKind::Blob,
+        &payload,
+        vex_utils::hash::HashAlgo::DEFAULT,
+    )
+    .expect("encode");
 
     // Push it.
+    write_frame(h.writer(), &Frame::PackStart { entry_count: 1 }).unwrap();
     write_frame(
         h.writer(),
-        &Frame::PackStart { entry_count: 1 },
-    )
-    .unwrap();
-    write_frame(
-        h.writer(),
-        &Frame::PackChunk(vec![PackEntry { hash, bytes: framed }]),
+        &Frame::PackChunk(vec![PackEntry {
+            hash,
+            bytes: framed,
+        }]),
     )
     .unwrap();
     write_frame(h.writer(), &Frame::PackEnd).unwrap();
