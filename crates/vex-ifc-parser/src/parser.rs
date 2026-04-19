@@ -277,6 +277,7 @@ impl<R: BufRead> Parser<R> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use std::io::Cursor;
 

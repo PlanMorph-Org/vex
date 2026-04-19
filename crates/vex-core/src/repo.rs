@@ -72,8 +72,8 @@ impl Repository {
             }
             if !cur.pop() {
                 return Err(VexError::Config(format!(
-                    "no .vex repository found at or above {:?}",
-                    path.as_ref()
+                    "no .vex repository found at or above {}",
+                    path.as_ref().display()
                 )));
             }
         }
@@ -397,9 +397,8 @@ impl Repository {
         if !result.clean {
             return Ok(MergeOutcome::Conflicts(result));
         }
-        let strat = match (strategy, commit) {
-            (Some(s), true) => s,
-            _ => return Ok(MergeOutcome::Clean(result)),
+        let (Some(strat), true) = (strategy, commit) else {
+            return Ok(MergeOutcome::Clean(result));
         };
         let co = self.store.get_commit(ho)?;
         let ct = self.store.get_commit(ht)?;
@@ -407,9 +406,10 @@ impl Repository {
             MergeStrategy::Ours => co.tree,
             MergeStrategy::Theirs => ct.tree,
         };
-        let msg = message
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("Merge {theirs_ref} into {ours_ref}"));
+        let msg = message.map_or_else(
+            || format!("Merge {theirs_ref} into {ours_ref}"),
+            str::to_string,
+        );
         let mut commit_obj = Commit {
             tree: merged_tree,
             parents: vec![ho, ht],
@@ -452,7 +452,7 @@ impl Repository {
         let mut entries: Vec<TreeEntry> = Vec::with_capacity(graph.node_count());
         let mut blob_hashes: Vec<Hash256> = Vec::with_capacity(graph.node_count());
 
-        for (id, node) in graph.nodes.iter() {
+        for (id, node) in &graph.nodes {
             let blob = Blob {
                 type_name: interner.resolve(node.type_name).to_string(),
                 step_id: node.step_id,
@@ -475,7 +475,7 @@ impl Repository {
 
         // Map NodeId → node_hash so we can rewrite edges to hash-space.
         let mut node_hash_of = ahash::AHashMap::with_capacity(graph.node_count());
-        for (id, _) in graph.nodes.iter() {
+        for (id, _) in &graph.nodes {
             node_hash_of.insert(id, hashes.per_node[&id]);
         }
         let mut edges: Vec<TreeEdge> = graph
@@ -527,7 +527,7 @@ impl Repository {
         let tree = self.store.get_tree(tree_hash)?;
         let interner = StringInterner::new();
         let mut graph = IfcGraph::new();
-        graph.schema = tree.schema.clone();
+        graph.schema.clone_from(&tree.schema);
         let mut hash_to_node: ahash::AHashMap<Hash256, vex_graph::NodeId> =
             ahash::AHashMap::with_capacity(tree.entries.len());
 
@@ -730,7 +730,6 @@ impl Repository {
                 for entry in &tree.entries {
                     reachable.insert(entry.blob_hash);
                 }
-                continue;
             }
             // Blobs are terminal; nothing to descend into.
         }
@@ -797,6 +796,7 @@ pub enum MergeOutcome {
 /// semantically-equivalent reload.
 fn render_ifc(graph: &IfcGraph, interner: &StringInterner) -> String {
     use std::collections::BTreeMap;
+    use std::fmt::Write;
     use vex_graph::ir::Value;
 
     // Stable ordering: sort nodes by step_id so output is reproducible.
@@ -828,14 +828,14 @@ fn render_ifc(graph: &IfcGraph, interner: &StringInterner) -> String {
     out.push_str("HEADER;\n");
     out.push_str("FILE_DESCRIPTION((''),'2;1');\n");
     out.push_str("FILE_NAME('','',(''),(''),'vex-checkout','','');\n");
-    out.push_str(&format!("FILE_SCHEMA(('{schema}'));\n"));
+    let _ = writeln!(out, "FILE_SCHEMA(('{schema}'));");
     out.push_str("ENDSEC;\n");
     out.push_str("DATA;\n");
 
     for (id, node) in &ordered {
         let step = step_of[id];
         let type_name = interner.resolve(node.type_name);
-        out.push_str(&format!("#{step} = {type_name}("));
+        let _ = write!(out, "#{step} = {type_name}(");
         // Props are keyed `_0`, `_1`, ...; pull them back into positional
         // order. Fill gaps with `$` and replace Nulls that correspond to
         // edge slots with `#N`.
@@ -863,7 +863,7 @@ fn render_ifc(graph: &IfcGraph, interner: &StringInterner) -> String {
             if !edge_targets.is_empty() {
                 if edge_targets.len() == 1 && edge_targets[0].0 .1 == u16::MAX {
                     let target = *edge_targets[0].1;
-                    out.push_str(&format!("#{}", step_of[&target]));
+                    let _ = write!(out, "#{}", step_of[&target]);
                 } else {
                     // List argument.
                     out.push('(');
@@ -873,7 +873,7 @@ fn render_ifc(graph: &IfcGraph, interner: &StringInterner) -> String {
                             out.push(',');
                         }
                         f2 = false;
-                        out.push_str(&format!("#{}", step_of[to]));
+                        let _ = write!(out, "#{}", step_of[to]);
                     }
                     out.push(')');
                 }
@@ -1085,6 +1085,7 @@ fn load_profile(vex_dir: &Path) -> VexResult<Profile> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 

@@ -454,6 +454,13 @@ impl<R: BufRead> Lexer<R> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::items_after_statements,
+    clippy::approx_constant
+)]
 mod tests {
     use std::io::Cursor;
 

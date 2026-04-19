@@ -1,6 +1,6 @@
 //! Ed25519 commit signing.
 //!
-//! Signing uses the [`ed25519-dalek`] crate with the standard PureEd25519
+//! Signing uses the [`ed25519-dalek`] crate with the standard `PureEd25519`
 //! algorithm (RFC 8032). The signing payload is the `bincode`-serialized
 //! commit body **with `signature` field set to `None`** — verification
 //! reproduces the exact same bytes and checks the attached signature.
@@ -56,7 +56,8 @@ pub fn load_signing_key(vex_dir: &Path, name: &str) -> VexResult<SigningKey> {
     let bytes = fs::read(&path).map_err(|e| VexError::io_at(&path, e))?;
     if bytes.len() != SK_LEN {
         return Err(VexError::Config(format!(
-            "{path:?}: expected {SK_LEN} bytes, found {}",
+            "{}: expected {SK_LEN} bytes, found {}",
+            path.display(),
             bytes.len()
         )));
     }
@@ -173,6 +174,12 @@ fn set_private_perms(_path: &Path) -> VexResult<()> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::bool_assert_comparison
+)]
 mod tests {
     use super::*;
     use vex_storage::Identity;

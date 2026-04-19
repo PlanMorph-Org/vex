@@ -230,6 +230,7 @@ pub fn default_server_capabilities() -> Vec<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 

@@ -223,6 +223,7 @@ pub fn hash_bytes(bytes: &[u8]) -> Hash256 {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::builder::GraphBuilder;

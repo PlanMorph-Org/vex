@@ -43,7 +43,7 @@ impl ArchiturClient {
         let secret = std::env::var("VEX_INTERNAL_SECRET").ok()?;
         let fail_closed = matches!(
             std::env::var("VEX_FAIL_CLOSED").ok().as_deref(),
-            Some("1") | Some("true") | Some("TRUE")
+            Some("1" | "true" | "TRUE")
         );
         Some(Self {
             base_url,
@@ -120,11 +120,11 @@ impl ArchiturClient {
         }
     }
 
+    #[allow(clippy::expect_used)]
     fn sign(&self, body: &str) -> String {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs());
         let payload = format!("{ts}.{body}");
         let mut mac = HmacSha256::new_from_slice(self.secret.as_bytes())
             .expect("HMAC accepts any key length");
@@ -170,6 +170,7 @@ pub struct RefUpdatedCommit {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 

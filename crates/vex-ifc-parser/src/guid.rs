@@ -62,6 +62,7 @@ pub fn render_uuid(bytes: [u8; 16]) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 

@@ -200,6 +200,7 @@ impl ObjectStore {
     /// **For testing only** — overwrite an object's bytes, intentionally
     /// breaking content-hash integrity. Used by tamper-detection tests.
     #[doc(hidden)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn _debug_corrupt_object(&self, hash: Hash256, new_bytes: Vec<u8>) -> VexResult<()> {
         // Bypasses [`Self::put_framed`]'s integrity check intentionally.
         // Use the backend's `delete` then `put` so non-redb backends behave too.
@@ -281,6 +282,7 @@ fn validate_ref_name(name: &str) -> VexResult<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::object::{Commit, Identity};
@@ -381,20 +383,10 @@ mod tests {
     }
 
     fn tempdir() -> std::path::PathBuf {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let base = std::env::temp_dir();
-        let unique = format!(
-            "vex-storage-test-{}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos(),
-            COUNTER.fetch_add(1, Ordering::Relaxed),
-        );
-        let p = base.join(unique);
-        std::fs::create_dir_all(&p).expect("mkdir");
-        p
+        tempfile::Builder::new()
+            .prefix("vex-storage-test-")
+            .tempdir()
+            .expect("tempdir")
+            .keep()
     }
 }

@@ -28,6 +28,7 @@ pub(crate) struct SshUrl {
 }
 
 impl SshUrl {
+    #[allow(clippy::similar_names)]
     pub(crate) fn parse(s: &str) -> Result<Self> {
         let rest = s
             .strip_prefix("ssh://")
@@ -157,6 +158,7 @@ impl RemoteStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 

@@ -94,7 +94,7 @@ pub struct TreeEntry {
     pub node_hash: Hash256,
     /// Hash of the Blob storing this node's content.
     pub blob_hash: Hash256,
-    /// Original GlobalId if the node carries one. Enables fast GlobalId lookup.
+    /// Original `GlobalId` if the node carries one. Enables fast `GlobalId` lookup.
     pub global_id: Option<String>,
 }
 

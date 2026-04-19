@@ -284,6 +284,7 @@ fn init_tracing(verbose: u8) {
         .try_init();
 }
 
+#[allow(clippy::too_many_lines)]
 fn run(cli: Cli) -> anyhow::Result<()> {
     let cwd = std::env::current_dir().context("cwd")?;
     let repo_hint = cli.repo.clone().unwrap_or(cwd);
@@ -317,7 +318,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                     })
                 );
             } else {
-                println!("staged tree {}", hash);
+                println!("staged tree {hash}");
             }
         }
         Cmd::Commit {
@@ -355,7 +356,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                             "email": c.author.email,
                             "timestamp": c.timestamp,
                             "message": c.message,
-                            "parents": c.parents.iter().map(|p| p.to_hex()).collect::<Vec<_>>(),
+                            "parents": c.parents.iter().map(vex_utils::Hash256::to_hex).collect::<Vec<_>>(),
                         })
                     })
                     .collect();
@@ -555,13 +556,13 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                     Some("merge has conflicts")
                 }
             };
-            if ff_only {
-                if !matches!(
+            if ff_only
+                && !matches!(
                     outcome,
                     vex_core::MergeOutcome::UpToDate | vex_core::MergeOutcome::FastForward(_)
-                ) {
-                    anyhow::bail!("--ff-only: refusing non-fast-forward merge");
-                }
+                )
+            {
+                anyhow::bail!("--ff-only: refusing non-fast-forward merge");
             }
             if let Some(e) = exit_err {
                 anyhow::bail!(e);
@@ -645,9 +646,10 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             } else {
                 match (&s.head, &s.staged) {
                     (None, None) => println!("empty repository"),
-                    (Some(h), None) => println!("HEAD at {} — nothing staged", h),
-                    (None, Some(s)) => println!("staged tree {}", s),
+                    (Some(h), None) => println!("HEAD at {h} — nothing staged"),
+                    (None, Some(st)) => println!("staged tree {st}"),
                     (Some(_), Some(_)) => {
+                        #[allow(clippy::expect_used)]
                         let sm = s.summary.as_ref().expect("summary");
                         println!(
                             "staged vs HEAD: {} added, {} removed, {} modified",
@@ -829,6 +831,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             refspec,
             force,
         } => {
+            use vex_protocol::UpdateRefStatus;
             let repo = Repository::open(&repo_hint).context("open")?;
             let store = remote::RemoteStore::open(&repo_hint)?;
             let entry = store
@@ -837,14 +840,11 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             let url = remote::SshUrl::parse(&entry.url)?;
             let (local_ref, remote_ref) = parse_refspec(&refspec);
             let report = transport::push(&repo, &url, &remote, &local_ref, &remote_ref, force)?;
-            use vex_protocol::UpdateRefStatus;
             let (status_label, status_detail) = match &report.status {
                 UpdateRefStatus::Ok => ("ok", String::new()),
                 UpdateRefStatus::Conflict { actual } => (
                     "conflict",
-                    actual
-                        .map(|h| h.to_hex())
-                        .unwrap_or_else(|| "absent".into()),
+                    actual.map_or_else(|| "absent".into(), |h| h.to_hex()),
                 ),
                 UpdateRefStatus::Rejected { reason } => ("rejected", reason.clone()),
             };

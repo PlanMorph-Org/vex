@@ -4,7 +4,7 @@
 //! named refs) from **where** it lives. The default backend is a single
 //! `redb` file on disk (`RedbObjectBackend` + `RedbRefBackend`). Cloud
 //! deployments swap in `S3ObjectBackend` (any S3-compatible service such as
-//! AWS S3, DigitalOcean Spaces, MinIO, Cloudflare R2) for objects and
+//! AWS S3, `DigitalOcean` Spaces, `MinIO`, Cloudflare R2) for objects and
 //! `PostgresRefBackend` for refs (transactional CAS prevents push races).
 //!
 //! Backends are object-safe trait objects so a process can mix and match

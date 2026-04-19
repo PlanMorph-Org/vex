@@ -1,4 +1,4 @@
-//! S3-compatible object backend (AWS S3, DigitalOcean Spaces, MinIO, R2).
+//! S3-compatible object backend (AWS S3, `DigitalOcean` Spaces, `MinIO`, R2).
 //!
 //! Available with the `s3-backend` feature. Uses `aws-sdk-s3` under a small
 //! Tokio runtime so the backend trait stays synchronous.
@@ -28,11 +28,11 @@ pub struct S3Config {
     /// `None` means "default AWS S3".
     pub endpoint: Option<String>,
     /// Region. For non-AWS providers any non-empty value works
-    /// (e.g. `"us-east-1"` for DigitalOcean Spaces).
+    /// (e.g. `"us-east-1"` for `DigitalOcean` Spaces).
     pub region: String,
     pub access_key: String,
     pub secret_key: String,
-    /// Required for MinIO and other path-style services. Default `false`
+    /// Required for `MinIO` and other path-style services. Default `false`
     /// (virtual-hosted style) which is what AWS and DO Spaces use.
     pub path_style: bool,
     /// Key prefix prepended to every object. Use it for tenant isolation,
@@ -258,6 +258,7 @@ impl S3ObjectBackend {
                 let objs: Vec<_> = chunk
                     .iter()
                     .map(|k| {
+                        #[allow(clippy::expect_used)]
                         aws_sdk_s3::types::ObjectIdentifier::builder()
                             .key(k)
                             .build()
@@ -295,9 +296,9 @@ fn parse_hash_from_key(key: &str, prefix: &str) -> Option<Hash256> {
         return None;
     }
     let mut bytes = [0u8; 32];
-    for i in 0..32 {
+    for (i, byte) in bytes.iter_mut().enumerate() {
         let byte_str = hex.get(i * 2..i * 2 + 2)?;
-        bytes[i] = u8::from_str_radix(byte_str, 16).ok()?;
+        *byte = u8::from_str_radix(byte_str, 16).ok()?;
     }
     Some(Hash256::from_bytes(bytes))
 }

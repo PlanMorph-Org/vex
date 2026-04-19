@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::pedantic
+)]
 //! End-to-end integration test of the vex remote protocol.
 //!
 //! Exercises [`serve_session`] across an in-memory full-duplex pipe with a

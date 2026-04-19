@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::pedantic
+)]
 //! Phase 2 integration tests: merge, signing, profile.
 
 use std::path::{Path, PathBuf};

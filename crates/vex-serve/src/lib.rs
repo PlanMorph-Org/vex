@@ -161,6 +161,11 @@ fn ref_kind(name: &str) -> String {
     }
 }
 
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::many_single_char_names,
+    clippy::map_unwrap_or
+)]
 fn rfc3339_from_unix(secs: i64) -> String {
     use std::time::{Duration, UNIX_EPOCH};
     let dt = UNIX_EPOCH + Duration::from_secs(secs.max(0) as u64);
@@ -219,6 +224,7 @@ pub fn serve_session<R: Read, W: Write>(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn serve_session_inner<R: Read, W: Write>(
     config: &ServeConfig,
     reader: &mut R,
@@ -298,14 +304,14 @@ fn serve_session_inner<R: Read, W: Write>(
             Frame::Want(mut hs) => wants.append(&mut hs),
             Frame::Have(mut hs) => haves.append(&mut hs),
             Frame::Done => {
-                if !wants.is_empty() {
+                if wants.is_empty() {
+                    // Quiet ack — no work pending. Continue listening; the
+                    // client may follow up with another command.
+                } else {
                     // Client finished negotiating a fetch — ship a pack.
                     send_pack(writer, &repo, &wants, &haves)?;
                     wants.clear();
                     haves.clear();
-                } else {
-                    // Quiet ack — no work pending. Continue listening; the
-                    // client may follow up with another command.
                 }
             }
 
@@ -537,6 +543,7 @@ fn collect_reachable(
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 

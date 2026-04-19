@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::pedantic
+)]
 //! Phase 4 integration tests: branches, tags, status, checkout, gc, tamper.
 
 use std::path::{Path, PathBuf};

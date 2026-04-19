@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 pub use vex_diff::{DiffReport, Identity, Layer, PropDelta, SerValue};
 
 /// One classified element change. Stable across IFC re-export thanks to
-/// [`Identity`] (GlobalId primary, structural-hash fallback).
+/// [`Identity`] (`GlobalId` primary, structural-hash fallback).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElementChange {
     pub id: Identity,
@@ -188,24 +188,25 @@ fn first_hint(
     meaning_of: &dyn Fn(&str) -> Option<SlotMeaning>,
 ) -> Option<String> {
     let d = deltas.first()?;
-    let label = meaning_of(&d.key)
-        .map(SlotMeaning::label)
-        .unwrap_or(d.key.as_str());
+    let label = match meaning_of(&d.key) {
+        Some(m) => m.label(),
+        None => d.key.as_str(),
+    };
     Some(format!(
         "{label}: {} → {}",
-        render_value(&d.before),
-        render_value(&d.after)
+        render_value(d.before.as_ref()),
+        render_value(d.after.as_ref())
     ))
 }
 
-fn render_value(v: &Option<SerValue>) -> String {
+fn render_value(v: Option<&SerValue>) -> String {
     match v {
         None => "∅".to_string(),
         Some(SerValue::Null) => "$".to_string(),
         Some(SerValue::Bool(b)) => b.to_string(),
         Some(SerValue::Int(i)) => i.to_string(),
         Some(SerValue::Real(r)) => format!("{r}"),
-        Some(SerValue::Text(s)) | Some(SerValue::Enum(s)) => s.clone(),
+        Some(SerValue::Text(s) | SerValue::Enum(s)) => s.clone(),
         Some(SerValue::List(_)) => "[…]".to_string(),
         Some(SerValue::Typed { name, .. }) => format!("{name}(…)"),
     }
@@ -305,6 +306,7 @@ fn is_element_subtype(upper: &str) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
     use vex_diff::{Change, DiffReport, DiffSummary, Identity, Layer, PropDelta, SerValue};

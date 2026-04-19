@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::pedantic
+)]
 //! Phase 5 — `vex merge` end-to-end: up-to-date, fast-forward, clean,
 //! conflicts, --strategy and --ff-only.
 

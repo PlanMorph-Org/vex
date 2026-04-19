@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::pedantic
+)]
 //! Phase 3 integration tests: geometry hashing via CLI + log rendering formats.
 
 use std::path::{Path, PathBuf};

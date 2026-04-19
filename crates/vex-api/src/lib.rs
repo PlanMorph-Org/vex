@@ -118,7 +118,7 @@ impl VexProject {
                     author: c.author.name,
                     email: c.author.email,
                     timestamp: c.timestamp,
-                    parents: c.parents.iter().map(|p| p.to_hex()).collect(),
+                    parents: c.parents.iter().map(Hash256::to_hex).collect(),
                 }
             })
             .collect())
@@ -127,9 +127,8 @@ impl VexProject {
     /// Convenience: changes between the previous version and HEAD. Returns
     /// `None` when HEAD has no parent (i.e. this is the first version).
     pub fn changes_since_last(&self) -> VexResult<Option<VisualDiff>> {
-        let head = match self.repo.resolve_head()? {
-            Some(h) => h,
-            None => return Ok(None),
+        let Some(head) = self.repo.resolve_head()? else {
+            return Ok(None);
         };
         let commit = self.repo.store().get_commit(head)?;
         let parent = match commit.parents.first() {
@@ -142,6 +141,7 @@ impl VexProject {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 

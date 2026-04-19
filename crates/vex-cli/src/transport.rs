@@ -50,9 +50,7 @@ impl SshChannel {
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::inherit());
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("spawn `{}`", ssh_bin))?;
+        let mut child = cmd.spawn().with_context(|| format!("spawn `{ssh_bin}`"))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?);
         Ok(Self {

@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::pedantic
+)]
 //! End-to-end integration test driving the compiled `vex` binary.
 //!
 //! This is a `#[test]` harness that shells out to `cargo run --bin vex`

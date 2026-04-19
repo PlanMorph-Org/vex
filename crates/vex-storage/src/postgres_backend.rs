@@ -65,6 +65,7 @@ impl PostgresRefBackend {
         Self::with_runtime(cfg, Arc::new(rt))
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     pub fn with_runtime(cfg: PostgresConfig, rt: Arc<Runtime>) -> VexResult<Self> {
         let pool = rt.block_on(async {
             PgPoolOptions::new()

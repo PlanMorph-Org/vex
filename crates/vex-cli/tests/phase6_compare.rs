@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::pedantic
+)]
 //! Phase 6 — `vex compare` and `vex changes` end-to-end.
 
 use std::path::{Path, PathBuf};

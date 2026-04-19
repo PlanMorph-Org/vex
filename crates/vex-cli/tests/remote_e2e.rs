@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::pedantic
+)]
 //! End-to-end test of the CLI's `clone`/`fetch`/`push`/`pull` commands.
 //!
 //! We can't run a real `ssh` daemon in CI, so we use a tiny shim: a shell
