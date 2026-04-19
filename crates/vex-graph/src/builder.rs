@@ -22,7 +22,7 @@ pub struct GraphBuilder {
     interner: StringInterner,
     /// Raw entities, kept for the second pass.
     raw: Vec<RawEntity>,
-    /// Normalization profile (default = drop IfcOwnerHistory).
+    /// Normalization profile (default = drop `IfcOwnerHistory`).
     profile: Profile,
 }
 
@@ -162,6 +162,7 @@ impl GraphBuilder {
 
 /// Walk a parser value looking for references; emit edges.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::only_used_in_recursion)]
 fn lift_value(
     interner: &StringInterner,
     id_map: &AHashMap<u64, NodeId>,
@@ -217,11 +218,10 @@ fn inline_value(
     v: &ParserValue,
 ) -> VexResult<Value> {
     Ok(match v {
-        ParserValue::Null => Value::Null,
-        ParserValue::Derived => Value::Null,
+        ParserValue::Null | ParserValue::Derived => Value::Null,
         ParserValue::Int(n) => Value::Int(*n),
         ParserValue::Real(x) => Value::Real(*x),
-        ParserValue::Str(s) => Value::Text(interner.intern(s)),
+        ParserValue::Str(s) | ParserValue::Binary(s) => Value::Text(interner.intern(s)),
         ParserValue::Enum(s) => {
             // Decode common booleans.
             match s.as_str() {
@@ -230,7 +230,6 @@ fn inline_value(
                 _ => Value::Enum(interner.intern(s)),
             }
         }
-        ParserValue::Binary(s) => Value::Text(interner.intern(s)),
         ParserValue::Ref(n) => {
             // Replace with a stable placeholder so the shape of the property
             // list is preserved. The actual connection lives in edges.
@@ -251,7 +250,7 @@ fn inline_value(
     })
 }
 
-/// IFC GlobalIds are exactly 22 characters and use the alphabet
+/// IFC `GlobalIds` are exactly 22 characters and use the alphabet
 /// `[0-9A-Za-z_$]`. We don't decode eagerly — equality on the string is the
 /// cheap and correct identity check.
 fn looks_like_global_id(s: &str) -> bool {

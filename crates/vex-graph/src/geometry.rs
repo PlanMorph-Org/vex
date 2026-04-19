@@ -32,7 +32,7 @@ pub fn compute_geometry_hashes(
     // First pass: hash all primitive shapes (profiles, blocks, cylinders,
     // meshes) — things that don't reference other shapes.
     let mut hashes: AHashMap<NodeId, Hash256> = AHashMap::new();
-    for (id, node) in graph.nodes.iter() {
+    for (id, node) in &graph.nodes {
         let type_name = interner.resolve(node.type_name).to_ascii_uppercase();
         if let Some(h) = hash_primitive(&type_name, node, tol) {
             hashes.insert(id, h);
@@ -40,7 +40,7 @@ pub fn compute_geometry_hashes(
     }
 
     // Second pass: derived shapes (extrusion) that reference primitives.
-    for (id, node) in graph.nodes.iter() {
+    for (id, node) in &graph.nodes {
         if hashes.contains_key(&id) {
             continue;
         }

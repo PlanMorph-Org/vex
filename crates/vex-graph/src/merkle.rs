@@ -68,7 +68,7 @@ pub struct GraphHashes {
 }
 
 /// Compute canonical hashes for every node and a root hash for the graph.
-pub fn hash_graph(graph: &IfcGraph, interner: &StringInterner, cfg: HashConfig) -> GraphHashes {
+pub fn hash_graph(graph: &IfcGraph, interner: &StringInterner, cfg: &HashConfig) -> GraphHashes {
     // Geometry hashes are computed up-front and folded into each node seed so
     // that shape changes propagate through the WL refinement rounds.
     let geom = geometry::compute_geometry_hashes(graph, interner, &cfg.tolerance);
@@ -132,7 +132,7 @@ pub fn hash_graph(graph: &IfcGraph, interner: &StringInterner, cfg: HashConfig) 
                             (k, e.slot, e.list_index, *nh.as_bytes())
                         })
                         .collect();
-                    tuples.sort();
+                    tuples.sort_unstable();
                     for (k, slot, li, nh) in tuples {
                         h.update(&[k]);
                         h.update(&slot.to_be_bytes());
@@ -152,7 +152,7 @@ pub fn hash_graph(graph: &IfcGraph, interner: &StringInterner, cfg: HashConfig) 
 
     // Merkle root over sorted per-node hashes.
     let mut all: Vec<[u8; 32]> = current.values().map(|h| *h.as_bytes()).collect();
-    all.sort();
+    all.sort_unstable();
     let mut h = Hasher::new(HashAlgo::Blake3);
     h.update(b"root:");
     h.update(&(all.len() as u64).to_be_bytes());
@@ -250,8 +250,8 @@ END-ISO-10303-21;
     fn identical_inputs_produce_identical_root() {
         let (g1, i1) = graph_from(BASE);
         let (g2, i2) = graph_from(BASE);
-        let h1 = hash_graph(&g1, &i1, HashConfig::default());
-        let h2 = hash_graph(&g2, &i2, HashConfig::default());
+        let h1 = hash_graph(&g1, &i1, &HashConfig::default());
+        let h2 = hash_graph(&g2, &i2, &HashConfig::default());
         assert_eq!(h1.root, h2.root);
     }
 
@@ -260,8 +260,8 @@ END-ISO-10303-21;
         let (g1, i1) = graph_from(BASE);
         let mutated = BASE.replace("'Project'", "'ProjectX'");
         let (g2, i2) = graph_from(&mutated);
-        let h1 = hash_graph(&g1, &i1, HashConfig::default());
-        let h2 = hash_graph(&g2, &i2, HashConfig::default());
+        let h1 = hash_graph(&g1, &i1, &HashConfig::default());
+        let h2 = hash_graph(&g2, &i2, &HashConfig::default());
         assert_ne!(h1.root, h2.root);
     }
 
@@ -290,8 +290,8 @@ END-ISO-10303-21;
             tolerance: Tolerance::new(1e-6, 1e-6),
             ..HashConfig::default()
         };
-        let h1 = hash_graph(&g1, &i1, cfg.clone());
-        let h2 = hash_graph(&g2, &i2, cfg);
+        let h1 = hash_graph(&g1, &i1, &cfg);
+        let h2 = hash_graph(&g2, &i2, &cfg);
         assert_eq!(h1.root, h2.root);
     }
 }

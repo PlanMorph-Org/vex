@@ -24,7 +24,7 @@ new_key_type! {
     pub struct NodeId;
 }
 
-/// The IFC GlobalId, preserved as the original 22-char base64 string.
+/// The IFC `GlobalId`, preserved as the original 22-char base64 string.
 /// We don't force a decode at ingest time — comparison is string-level.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GlobalId(pub String);
@@ -103,11 +103,11 @@ pub struct Node {
     /// Original STEP entity id from the source file. Not used for identity —
     /// purely diagnostic.
     pub step_id: u64,
-    /// IFC GlobalId if the entity carries one. This is the *primary* identity
+    /// IFC `GlobalId` if the entity carries one. This is the *primary* identity
     /// for the semantic diff.
     pub global_id: Option<GlobalId>,
-    /// Flat property list — (key_id, value). Canonical form sorts by key.
-    /// Most IFC entities have < 10 properties, so SmallVec avoids heap traffic.
+    /// Flat property list — (`key_id`, value). Canonical form sorts by key.
+    /// Most IFC entities have < 10 properties, so `SmallVec` avoids heap traffic.
     pub props: SmallVec<[(StringId, Value); 8]>,
 }
 
@@ -145,7 +145,7 @@ impl IfcGraph {
 
     /// Return all outgoing edges from `src`. O(E); callers that need this
     /// repeatedly should pre-build an adjacency index.
-    pub fn out_edges<'a>(&'a self, src: NodeId) -> impl Iterator<Item = &'a Edge> + 'a {
+    pub fn out_edges(&self, src: NodeId) -> impl Iterator<Item = &Edge> + '_ {
         self.edges.iter().filter(move |e| e.from == src)
     }
 }

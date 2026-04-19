@@ -113,8 +113,8 @@ pub fn diff(
     interner_b: &StringInterner,
     cfg: HashConfig,
 ) -> DiffReport {
-    let ha = hash_graph(a, interner_a, cfg.clone());
-    let hb = hash_graph(b, interner_b, cfg);
+    let ha = hash_graph(a, interner_a, &cfg);
+    let hb = hash_graph(b, interner_b, &cfg);
 
     // Build GlobalId indexes.
     let idx_by_guid_a = index_by_global_id(a);

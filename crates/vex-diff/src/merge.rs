@@ -130,9 +130,9 @@ pub fn merge_graphs(
     theirs_i: &StringInterner,
     cfg: HashConfig,
 ) -> MergeResult {
-    let hb = hash_graph(base, base_i, cfg.clone());
-    let ho = hash_graph(ours, ours_i, cfg.clone());
-    let ht = hash_graph(theirs, theirs_i, cfg);
+    let hb = hash_graph(base, base_i, &cfg);
+    let ho = hash_graph(ours, ours_i, &cfg);
+    let ht = hash_graph(theirs, theirs_i, &cfg);
 
     // Primary identity index: GlobalId.
     let base_by_gid = index_by_gid(base);

@@ -448,7 +448,7 @@ impl Repository {
         graph: &IfcGraph,
         interner: &StringInterner,
     ) -> VexResult<(Hash256, Vec<Hash256>)> {
-        let hashes = hash_graph(graph, interner, self.hash_config());
+        let hashes = hash_graph(graph, interner, &self.hash_config());
         let mut entries: Vec<TreeEntry> = Vec::with_capacity(graph.node_count());
         let mut blob_hashes: Vec<Hash256> = Vec::with_capacity(graph.node_count());
 
