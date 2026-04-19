@@ -32,7 +32,7 @@ pub struct Profile {
     pub ignore_types: BTreeSet<String>,
     /// Property keys to drop before hashing, case-sensitive. For STEP positional
     /// args these are strings like `"_3"` (slot 3). Free-form keys become
-    /// meaningful once we add IfcPropertySet lifting in Phase 3.
+    /// meaningful once we add `IfcPropertySet` lifting in Phase 3.
     #[serde(default)]
     pub ignore_prop_keys: BTreeSet<String>,
 }

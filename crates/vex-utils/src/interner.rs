@@ -1,7 +1,7 @@
 //! Thread-safe string interning.
 //!
 //! IFC models contain massive duplication in type names and property keys
-//! (the same ~900 IFC4x3 type strings appear millions of times). Interning
+//! (the same ~900 `IFC4x3` type strings appear millions of times). Interning
 //! cuts graph memory by >10x and makes equality checks O(1) pointer compares.
 
 use std::sync::Arc;
