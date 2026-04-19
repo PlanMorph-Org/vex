@@ -4,7 +4,7 @@
 //! module computes the merge outcome: which changes apply cleanly, and which
 //! conflict.
 //!
-//! Identity for merging is [`GlobalId`]-first. Nodes lacking a GlobalId fall
+//! Identity for merging is [`GlobalId`]-first. Nodes lacking a `GlobalId` fall
 //! back to structural hash, same as two-way diff. Edges are *not* merged in
 //! this MVP — we flag conflicts at the node-property level, which is where
 //! the overwhelming majority of real-world design edits occur.
@@ -121,6 +121,7 @@ pub struct MergeSummary {
 }
 
 /// Run the three-way merge.
+#[allow(clippy::too_many_lines)]
 pub fn merge_graphs(
     base: &IfcGraph,
     base_i: &StringInterner,
@@ -128,11 +129,11 @@ pub fn merge_graphs(
     ours_i: &StringInterner,
     theirs: &IfcGraph,
     theirs_i: &StringInterner,
-    cfg: HashConfig,
+    cfg: &HashConfig,
 ) -> MergeResult {
-    let hb = hash_graph(base, base_i, &cfg);
-    let ho = hash_graph(ours, ours_i, &cfg);
-    let ht = hash_graph(theirs, theirs_i, &cfg);
+    let hb = hash_graph(base, base_i, cfg);
+    let ho = hash_graph(ours, ours_i, cfg);
+    let ht = hash_graph(theirs, theirs_i, cfg);
 
     // Primary identity index: GlobalId.
     let base_by_gid = index_by_gid(base);
@@ -325,7 +326,7 @@ pub fn merge_graphs(
 
 fn index_by_gid(g: &IfcGraph) -> AHashMap<&str, NodeId> {
     let mut m = AHashMap::with_capacity(g.node_count());
-    for (id, node) in g.nodes.iter() {
+    for (id, node) in &g.nodes {
         if let Some(gid) = &node.global_id {
             m.insert(gid.0.as_str(), id);
         }

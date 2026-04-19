@@ -268,7 +268,7 @@ impl Repository {
         let cb = self.store.get_commit(hb)?;
         let (ga, ia) = self.materialize_graph(ca.tree)?;
         let (gb, ib) = self.materialize_graph(cb.tree)?;
-        Ok(diff(&ga, &ia, &gb, &ib, self.hash_config()))
+        Ok(diff(&ga, &ia, &gb, &ib, &self.hash_config()))
     }
 
     /// Render a diff between two refs to human-readable text.
@@ -343,7 +343,7 @@ impl Repository {
             &io,
             &gt,
             &it,
-            self.hash_config(),
+            &self.hash_config(),
         ))
     }
 
@@ -661,7 +661,7 @@ impl Repository {
                 if let Some(s) = staged_opt {
                     let tree = self.store.get_tree(s)?;
                     let (g_stg, i_stg) = self.materialize_graph_from_tree(&tree)?;
-                    let report = diff(&g_head, &i_head, &g_stg, &i_stg, self.hash_config());
+                    let report = diff(&g_head, &i_head, &g_stg, &i_stg, &self.hash_config());
                     Ok(Status {
                         staged: Some(s),
                         head: Some(head_hash),

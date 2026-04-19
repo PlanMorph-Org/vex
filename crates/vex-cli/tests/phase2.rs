@@ -163,7 +163,7 @@ END-ISO-10303-21;
     let (gb, ib) = graph(base_src);
     let (go, io) = graph(&ours_src);
     let (gt, it) = graph(&theirs_src);
-    let r = vex_diff::merge_graphs(&gb, &ib, &go, &io, &gt, &it, HashConfig::default());
+    let r = vex_diff::merge_graphs(&gb, &ib, &go, &io, &gt, &it, &HashConfig::default());
     assert!(!r.clean);
     assert_eq!(r.conflicts.len(), 1);
     match &r.conflicts[0] {
