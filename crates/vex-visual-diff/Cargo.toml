@@ -3,6 +3,7 @@ name = "vex-visual-diff"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish.workspace = true
 license-file.workspace = true
 repository.workspace = true
 description = "Classify a Vex DiffReport into per-element ElementChange records for plugin overlays."

@@ -3,6 +3,7 @@ name = "vex-summary"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish.workspace = true
 license-file.workspace = true
 repository.workspace = true
 description = "Render a Vex VisualDiff into a one-paragraph human summary."

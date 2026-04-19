@@ -20,6 +20,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.82"
+publish = false
 license-file = "LICENSE"
 repository = "https://github.com/vex-bim/vex"
 authors = ["Vex BIM Ltd"]

@@ -3,6 +3,7 @@ name = "vex-api"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish.workspace = true
 license-file.workspace = true
 repository.workspace = true
 description = "User-verb façade over vex-core for plugins and embedders."

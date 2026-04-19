@@ -3,6 +3,7 @@ name = "vex-geometry"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish.workspace = true
 license-file.workspace = true
 repository.workspace = true
 description = "Geometry hashing for IFC (Phase 3)."

@@ -5,7 +5,6 @@
 //! and `exec`s the freshly-built `vex-serve` binary against the locally
 //! prepared repo root. Pointed at via `VEX_SSH_BIN`.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -34,35 +33,34 @@ fn ensure_serve_built(serve: &Path) {
     assert!(serve.exists(), "vex-serve missing after build");
 }
 
+/// Write a Windows `.cmd` shim that invokes `vex-serve` directly.
+#[cfg(windows)]
 fn write_ssh_shim(dir: &Path, serve: &Path, repo_root: &Path) -> PathBuf {
-    // The shim ignores SSH arguments and directly invokes vex-serve.
-    // On Windows we use a .cmd batch file; everywhere else a bash script.
-    #[cfg(windows)]
-    {
-        let path = dir.join("ssh-shim.cmd");
-        let body = format!(
-            "@echo off\r\n\"{serve}\" --repo-root \"{root}\"\r\n",
-            serve = serve.display(),
-            root = repo_root.display(),
-        );
-        std::fs::write(&path, body).unwrap();
-        path
-    }
-    #[cfg(not(windows))]
-    {
-        let path = dir.join("ssh-shim.sh");
-        let body = format!(
-            "#!/usr/bin/env bash\nset -euo pipefail\nexec \"{serve}\" --repo-root \"{root}\"\n",
-            serve = serve.display(),
-            root = repo_root.display(),
-        );
-        std::fs::write(&path, body).unwrap();
-        let mut perms = std::fs::metadata(&path).unwrap().permissions();
-        use std::os::unix::fs::PermissionsExt;
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&path, perms).unwrap();
-        path
-    }
+    let path = dir.join("ssh-shim.cmd");
+    let body = format!(
+        "@echo off\r\n\"{serve}\" --repo-root \"{root}\"\r\n",
+        serve = serve.display(),
+        root = repo_root.display(),
+    );
+    std::fs::write(&path, body).unwrap();
+    path
+}
+
+/// Write a Unix shell shim that invokes `vex-serve` directly.
+#[cfg(not(windows))]
+fn write_ssh_shim(dir: &Path, serve: &Path, repo_root: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join("ssh-shim.sh");
+    let body = format!(
+        "#!/usr/bin/env bash\nset -euo pipefail\nexec \"{serve}\" --repo-root \"{root}\"\n",
+        serve = serve.display(),
+        root = repo_root.display(),
+    );
+    std::fs::write(&path, body).unwrap();
+    let mut perms = std::fs::metadata(&path).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&path, perms).unwrap();
+    path
 }
 
 fn run_vex(vex: &Path, args: &[&str], cwd: &Path, ssh_shim: &Path) -> (bool, String, String) {

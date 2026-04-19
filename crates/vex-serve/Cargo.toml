@@ -3,6 +3,7 @@ name = "vex-serve"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish.workspace = true
 license-file.workspace = true
 repository.workspace = true
 description = "Server-side daemon for vex remote operations (clone/fetch/push)."
