@@ -1,18 +1,18 @@
-//! Decode IFC's 22-character GlobalId (a compact base64 variant of a 128-bit UUID).
+//! Decode IFC's 22-character `GlobalId` (a compact base64 variant of a 128-bit UUID).
 //!
 //! The alphabet is:
 //! `0-9`, `A-Z`, `a-z`, `_`, `$` — 64 symbols, grouped in 6-bit units,
 //! packed big-endian. The first character carries only 2 bits (the high two bits
 //! of the first byte), yielding 128 bits total across 22 chars.
 //!
-//! Reference: buildingSMART spec for IfcGloballyUniqueId.
+//! Reference: buildingSMART spec for `IfcGloballyUniqueId`.
 
 use vex_utils::VexError;
 
-/// 64-symbol alphabet used by IfcGloballyUniqueId.
+/// 64-symbol alphabet used by `IfcGloballyUniqueId`.
 const ALPHA: &[u8; 64] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
 
-/// Decode an IFC GlobalId into its 16-byte representation.
+/// Decode an IFC `GlobalId` into its 16-byte representation.
 ///
 /// Returns an error if the input is not exactly 22 characters from the IFC
 /// alphabet.

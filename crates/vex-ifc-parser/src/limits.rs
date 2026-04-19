@@ -29,8 +29,8 @@ impl Default for ParseLimits {
             max_entities: 50_000_000,
             max_list_depth: 64,
             max_statement_bytes: 4 * 1024 * 1024,
-            max_string_bytes: 1 * 1024 * 1024,
-            max_entity_id: u32::MAX as u64,
+            max_string_bytes: 1024 * 1024,
+            max_entity_id: u64::from(u32::MAX),
             max_input_bytes: None,
         }
     }

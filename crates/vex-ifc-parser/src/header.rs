@@ -42,20 +42,20 @@ pub(crate) fn parse_header<R: BufRead>(lx: &mut Lexer<R>) -> VexResult<IfcHeader
                               // We just skip tokens until the first `;` for forgiveness.
     skip_until_semi(lx)?;
     expect_ident(lx, "HEADER")?;
-    expect(lx, Token::Semi)?;
+    expect(lx, &Token::Semi)?;
 
     let mut header = IfcHeader::default();
     loop {
         let t = lx.next_token()?;
         match t {
             Token::Ident(ref s) if s.eq_ignore_ascii_case("ENDSEC") => {
-                expect(lx, Token::Semi)?;
+                expect(lx, &Token::Semi)?;
                 return Ok(header);
             }
             Token::Ident(s) => {
                 let args = read_args(lx)?;
-                expect(lx, Token::Semi)?;
-                store_header_entry(&mut header, &s, args);
+                expect(lx, &Token::Semi)?;
+                store_header_entry(&mut header, &s, &args);
             }
             other => {
                 return Err(VexError::parse(
@@ -68,28 +68,28 @@ pub(crate) fn parse_header<R: BufRead>(lx: &mut Lexer<R>) -> VexResult<IfcHeader
     }
 }
 
-fn store_header_entry(header: &mut IfcHeader, name: &str, args: Vec<Token>) {
+fn store_header_entry(header: &mut IfcHeader, name: &str, args: &[Token]) {
     // Trivially shape-recognise well-known header entities.
     match name.to_ascii_uppercase().as_str() {
         "FILE_DESCRIPTION" => {
-            if let Some(list) = pick_string_list(&args, 0) {
+            if let Some(list) = pick_string_list(args, 0) {
                 header.description = list;
             }
-            if let Some(s) = pick_string(&args, 1) {
+            if let Some(s) = pick_string(args, 1) {
                 header.implementation_level = Some(s);
             }
         }
         "FILE_NAME" => {
-            header.name = pick_string(&args, 0);
-            header.time_stamp = pick_string(&args, 1);
-            header.author = pick_string_list(&args, 2).unwrap_or_default();
-            header.organization = pick_string_list(&args, 3).unwrap_or_default();
-            header.preprocessor_version = pick_string(&args, 4);
-            header.originating_system = pick_string(&args, 5);
-            header.authorization = pick_string(&args, 6);
+            header.name = pick_string(args, 0);
+            header.time_stamp = pick_string(args, 1);
+            header.author = pick_string_list(args, 2).unwrap_or_default();
+            header.organization = pick_string_list(args, 3).unwrap_or_default();
+            header.preprocessor_version = pick_string(args, 4);
+            header.originating_system = pick_string(args, 5);
+            header.authorization = pick_string(args, 6);
         }
         "FILE_SCHEMA" => {
-            if let Some(list) = pick_string_list(&args, 0) {
+            if let Some(list) = pick_string_list(args, 0) {
                 header.schemas = list;
             }
         }
@@ -152,7 +152,7 @@ fn pick_string_list(tokens: &[Token], index: usize) -> Option<Vec<String>> {
 }
 
 fn read_args<R: BufRead>(lx: &mut Lexer<R>) -> VexResult<Vec<Token>> {
-    expect(lx, Token::LParen)?;
+    expect(lx, &Token::LParen)?;
     let mut out = Vec::new();
     let mut depth = 1i32;
     loop {
@@ -178,9 +178,9 @@ fn read_args<R: BufRead>(lx: &mut Lexer<R>) -> VexResult<Vec<Token>> {
     }
 }
 
-fn expect<R: BufRead>(lx: &mut Lexer<R>, want: Token) -> VexResult<()> {
+fn expect<R: BufRead>(lx: &mut Lexer<R>, want: &Token) -> VexResult<()> {
     let got = lx.next_token()?;
-    if std::mem::discriminant(&got) == std::mem::discriminant(&want) {
+    if std::mem::discriminant(&got) == std::mem::discriminant(want) {
         Ok(())
     } else {
         Err(VexError::parse(

@@ -68,7 +68,7 @@ impl<R: BufRead> std::fmt::Debug for Lexer<R> {
         f.debug_struct("Lexer")
             .field("pos", &self.pos)
             .field("bytes_read", &self.bytes_read)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -131,7 +131,7 @@ impl<R: BufRead> Lexer<R> {
         loop {
             match self.read_byte()? {
                 None => return Ok(()),
-                Some(b) if b.is_ascii_whitespace() => continue,
+                Some(b) if b.is_ascii_whitespace() => {}
                 Some(b'/') => match self.read_byte()? {
                     Some(b'*') => self.skip_block_comment()?,
                     Some(other) => {
@@ -168,8 +168,7 @@ impl<R: BufRead> Lexer<R> {
     fn read_hash(&mut self) -> VexResult<Token> {
         let mut n: u64 = 0;
         let mut any = false;
-        loop {
-            let Some(b) = self.read_byte()? else { break };
+        while let Some(b) = self.read_byte()? {
             if b.is_ascii_digit() {
                 any = true;
                 n = n
@@ -198,8 +197,7 @@ impl<R: BufRead> Lexer<R> {
         // for IFC entity and type names but we preserve case of the raw input.
         let mut s = String::with_capacity(16);
         s.push(first as char);
-        loop {
-            let Some(b) = self.read_byte()? else { break };
+        while let Some(b) = self.read_byte()? {
             if b.is_ascii_alphanumeric() || b == b'_' {
                 s.push(b as char);
             } else {
@@ -215,8 +213,7 @@ impl<R: BufRead> Lexer<R> {
         let mut s = String::with_capacity(16);
         s.push(first as char);
         let mut is_real = matches!(first, b'.');
-        loop {
-            let Some(b) = self.read_byte()? else { break };
+        while let Some(b) = self.read_byte()? {
             match b {
                 b'0'..=b'9' => s.push(b as char),
                 b'.' | b'e' | b'E' => {
@@ -226,7 +223,7 @@ impl<R: BufRead> Lexer<R> {
                 b'+' | b'-' => {
                     // Only valid inside an exponent.
                     let prev = s.as_bytes().last().copied();
-                    if matches!(prev, Some(b'e') | Some(b'E')) {
+                    if matches!(prev, Some(b'e' | b'E')) {
                         s.push(b as char);
                     } else {
                         self.unget(b);
@@ -407,7 +404,7 @@ impl<R: BufRead> Lexer<R> {
             if b == b'"' {
                 return Ok(Token::Binary(s));
             }
-            if matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F') {
+            if b.is_ascii_hexdigit() {
                 s.push(b as char);
             } else {
                 return Err(self.err(format!("invalid char in binary: {:?}", b as char)));

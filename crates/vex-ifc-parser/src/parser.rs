@@ -63,7 +63,7 @@ impl<R: BufRead> std::fmt::Debug for Parser<R> {
         f.debug_struct("Parser")
             .field("entity_count", &self.entity_count)
             .field("finished", &self.finished)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -84,7 +84,7 @@ impl<R: BufRead> Parser<R> {
         let header = parse_header(&mut self.lx)?;
         // Expect `DATA;`
         self.expect_ident("DATA")?;
-        self.expect(Token::Semi)?;
+        self.expect(&Token::Semi)?;
         Ok(header)
     }
 
@@ -97,10 +97,10 @@ impl<R: BufRead> Parser<R> {
         let t = self.next()?;
         match t {
             Token::Ident(ref s) if s.eq_ignore_ascii_case("ENDSEC") => {
-                self.expect(Token::Semi)?;
+                self.expect(&Token::Semi)?;
                 // Optional `END-ISO-10303-21;` trailer.
                 self.finished = true;
-                return Ok(None);
+                Ok(None)
             }
             Token::Hash(id) => {
                 if id == 0 {
@@ -113,12 +113,12 @@ impl<R: BufRead> Parser<R> {
                         self.limits.max_entities
                     )));
                 }
-                self.expect(Token::Equals)?;
+                self.expect(&Token::Equals)?;
                 let head = self.next()?;
                 match head {
                     Token::Ident(type_name) => {
                         let args = self.parse_arg_list(0)?;
-                        self.expect(Token::Semi)?;
+                        self.expect(&Token::Semi)?;
                         Ok(Some(RawEntity {
                             id,
                             type_name: type_name.to_ascii_uppercase(),
@@ -148,7 +148,7 @@ impl<R: BufRead> Parser<R> {
                                 }
                             }
                         }
-                        self.expect(Token::Semi)?;
+                        self.expect(&Token::Semi)?;
                         Ok(Some(RawEntity {
                             id,
                             type_name: "__COMPLEX".to_string(),
@@ -173,7 +173,7 @@ impl<R: BufRead> Parser<R> {
                 self.limits.max_list_depth
             )));
         }
-        self.expect(Token::LParen)?;
+        self.expect(&Token::LParen)?;
         let mut out = Vec::new();
         // Allow empty list.
         if matches!(self.peek()?, Token::RParen) {
@@ -184,7 +184,7 @@ impl<R: BufRead> Parser<R> {
             let v = self.parse_value(depth + 1)?;
             out.push(v);
             match self.next()? {
-                Token::Comma => continue,
+                Token::Comma => {}
                 Token::RParen => return Ok(out),
                 other => {
                     return Err(self.err(format!("expected ',' or ')', got {other:?}")));
@@ -243,7 +243,10 @@ impl<R: BufRead> Parser<R> {
         if self.lookahead.is_none() {
             self.lookahead = Some(self.lx.next_token()?);
         }
-        Ok(self.lookahead.as_ref().expect("just set"))
+        match self.lookahead.as_ref() {
+            Some(t) => Ok(t),
+            None => unreachable!("just set"),
+        }
     }
 
     fn put_back(&mut self, t: Token) {
@@ -251,9 +254,9 @@ impl<R: BufRead> Parser<R> {
         self.lookahead = Some(t);
     }
 
-    fn expect(&mut self, want: Token) -> VexResult<()> {
+    fn expect(&mut self, want: &Token) -> VexResult<()> {
         let got = self.next()?;
-        if std::mem::discriminant(&got) == std::mem::discriminant(&want) {
+        if std::mem::discriminant(&got) == std::mem::discriminant(want) {
             Ok(())
         } else {
             Err(self.err(format!("expected {want:?}, got {got:?}")))
