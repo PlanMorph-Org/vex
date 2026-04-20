@@ -120,3 +120,64 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # ── Deploy vex-serve to the planmorph-prod droplet ────────────────────
+  # Runs only after the GitHub release is published. Pulls the linux-x86_64
+  # archive (which contains vex-serve), scp's the binary into /tmp on the
+  # droplet, and uses pre-authorised sudo rules to install + restart it.
+  #
+  # Required secrets (configure in repo Settings → Secrets → Actions):
+  #   DEPLOY_HOST    — droplet IP or hostname (e.g. 46.101.76.29)
+  #   DEPLOY_USER    — unprivileged user (e.g. deploy)
+  #   DEPLOY_SSH_KEY — ed25519 private key whose public half is in
+  #                    /home/deploy/.ssh/authorized_keys on the droplet
+  deploy-vex-serve:
+    name: Deploy vex-serve to droplet
+    needs: release
+    runs-on: ubuntu-latest
+    # Skip on prereleases (e.g. v0.1.0-rc1). Adjust if you want them deployed.
+    if: ${{ !contains(github.ref_name, '-') }}
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vex-linux-x86_64
+          path: dist/
+
+      - name: Extract vex-serve binary
+        run: |
+          set -euo pipefail
+          tar -xzf dist/vex-${GITHUB_REF_NAME}-linux-x86_64.tar.gz -C dist
+          mv dist/vex-${GITHUB_REF_NAME}-linux-x86_64/vex-serve dist/vex-serve
+          file dist/vex-serve
+          sha256sum dist/vex-serve
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # GitHub stores secrets without trailing newline; add one for OpenSSH.
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Upload + install + restart
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          SSH="ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes"
+          SCP="scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes"
+
+          $SCP dist/vex-serve "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/vex-serve.new"
+          $SSH "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'sudo /usr/bin/install -m 755 -o root -g root /tmp/vex-serve.new /usr/local/bin/vex-serve \
+              && sudo /bin/systemctl restart vex-serve \
+              && sudo /bin/systemctl is-active vex-serve \
+              && rm -f /tmp/vex-serve.new'
+
+          echo "vex-serve ${GITHUB_REF_NAME} deployed to ${DEPLOY_HOST}."
