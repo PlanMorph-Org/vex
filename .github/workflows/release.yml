@@ -188,8 +188,15 @@ jobs:
     name: Deploy vex-serve to droplet
     needs: release
     runs-on: ubuntu-latest
-    # Skip on prereleases (e.g. v0.1.0-rc1). Adjust if you want them deployed.
-    if: ${{ !contains(github.ref_name, '-') }}
+    # Skip on prereleases (e.g. v0.1.0-rc1). Also skip when deploy secrets
+    # are not configured on the repo, otherwise this job fails on every
+    # release with empty-string SSH key / host (ssh-keyscan exits non-zero
+    # on an empty hostname). Once you set DEPLOY_HOST, DEPLOY_USER, and
+    # DEPLOY_SSH_KEY in repo Settings → Secrets, this guard becomes true
+    # automatically and the deploy starts running on the next release.
+    if: |
+      !contains(github.ref_name, '-')
+      && vars.DEPLOY_ENABLED == 'true'
     steps:
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
