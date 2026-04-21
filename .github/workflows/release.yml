@@ -69,33 +69,76 @@ jobs:
           --target ${{ matrix.target }}
 
       # ── Package ──────────────────────────────────────────────────────────
+      # We publish TWO things per platform for vex-cli:
+      #
+      #   1. vex-{tag}-{suffix}.tar.gz
+      #      The "scripted" bundle: contains a sub-folder with the binary,
+      #      vex-serve (linux only) and a SHA256SUMS file. Consumed by
+      #      install.sh / install.ps1, and by the deploy-vex-serve job below.
+      #
+      #   2. A single-file artifact for the "Direct downloads" buttons on the
+      #      website. Tar.gz is a terrible browser-download format on macOS
+      #      (Safari half-extracts it into a folder users mistake for the
+      #      source repo) and Windows (PowerShell can't unpack it natively).
+      #
+      #         macOS  →  vex-{tag}-{suffix}.zip   (single binary at root)
+      #         Windows → vex-{tag}-windows-x86_64.exe   (bare .exe)
+      #
+      #      Linux client builds are not exposed on the website — vex-serve
+      #      ships through deploy-vex-serve below — so we skip the direct
+      #      artifact for linux-x86_64.
       - name: Package artifacts
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME}"
           EXE="${{ matrix.exe }}"
+          BIN="vex${EXE}"
           DIR="dist/vex-${VERSION}-${{ matrix.artifact_suffix }}"
-          mkdir -p "$DIR"
+          mkdir -p "$DIR" dist
 
-          cp "target/${{ matrix.target }}/release/vex${EXE}" "$DIR/vex${EXE}"
+          cp "target/${{ matrix.target }}/release/${BIN}" "$DIR/${BIN}"
 
           if [[ -f "target/${{ matrix.target }}/release/vex-serve" ]]; then
             cp "target/${{ matrix.target }}/release/vex-serve" "$DIR/vex-serve"
           fi
 
-          cd "$DIR"
-          sha256sum vex${EXE} >> SHA256SUMS
-          [[ -f vex-serve ]] && sha256sum vex-serve >> SHA256SUMS
-          cd ../..
+          # 1) Scripted bundle.
+          ( cd "$DIR" \
+            && sha256sum "${BIN}" >> SHA256SUMS \
+            && { [[ -f vex-serve ]] && sha256sum vex-serve >> SHA256SUMS; } || true )
 
           ARCHIVE="dist/vex-${VERSION}-${{ matrix.artifact_suffix }}.tar.gz"
           tar -czf "$ARCHIVE" -C dist "vex-${VERSION}-${{ matrix.artifact_suffix }}"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
-      - name: Upload artifact
+
+          # 2) Direct-download single-file artifact (client OSes only).
+          case "${{ matrix.artifact_suffix }}" in
+            windows-*)
+              DIRECT="dist/vex-${VERSION}-${{ matrix.artifact_suffix }}.exe"
+              cp "$DIR/${BIN}" "$DIRECT"
+              echo "DIRECT=$DIRECT" >> "$GITHUB_ENV"
+              ;;
+            macos-*)
+              DIRECT="dist/vex-${VERSION}-${{ matrix.artifact_suffix }}.zip"
+              ( cd "$DIR" && zip -qj "../../${DIRECT}" "${BIN}" )
+              echo "DIRECT=$DIRECT" >> "$GITHUB_ENV"
+              ;;
+            *) ;;  # linux-x86_64: no direct artifact
+          esac
+
+      - name: Upload artifact (scripted bundle)
         uses: actions/upload-artifact@v4
         with:
           name: vex-${{ matrix.artifact_suffix }}
           path: ${{ env.ARCHIVE }}
+          retention-days: 1
+
+      - name: Upload artifact (direct download)
+        if: env.DIRECT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: vex-${{ matrix.artifact_suffix }}-direct
+          path: ${{ env.DIRECT }}
           retention-days: 1
 
   release:
@@ -116,7 +159,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/**/*.tar.gz
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.exe
+            dist/**/*.zip
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
