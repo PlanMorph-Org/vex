@@ -25,7 +25,14 @@ jobs:
             target: aarch64-apple-darwin
             artifact_suffix: macos-arm64
             exe: ""
-          - runner: macos-13       # Intel
+          # Cross-compile macOS Intel from the Apple Silicon runner. The
+          # macos-latest image ships the x86_64 SDK, and the macos-13 (Intel)
+          # runner pool is being deprecated by GitHub — jobs scheduled on it
+          # routinely sit queued for hours and were the reason every v0.1.0
+          # release was stuck. fail-fast:false + needs:build means one stuck
+          # job blocks the entire release, so we keep everything on the
+          # current runner image.
+          - runner: macos-latest
             target: x86_64-apple-darwin
             artifact_suffix: macos-x86_64
             exe: ""
