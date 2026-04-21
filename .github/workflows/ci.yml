@@ -18,8 +18,10 @@ jobs:
       matrix:
         os:
           - windows-latest  # Windows x86_64
-          - macos-latest    # macOS arm64 (Apple Silicon)
-          - macos-13        # macOS x86_64 (Intel)
+          - macos-latest    # macOS arm64 (Apple Silicon) — also validates the
+                            # macOS toolchain we cross-compile x86_64 from in
+                            # release.yml. macos-13 (Intel) was deprecated by
+                            # GitHub and was leaving CI runs queued forever.
           - ubuntu-latest   # Linux x86_64 (needed for vex-serve server builds)
 
     steps:
