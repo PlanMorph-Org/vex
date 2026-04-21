@@ -188,12 +188,14 @@ jobs:
     name: Deploy vex-serve to droplet
     needs: release
     runs-on: ubuntu-latest
-    # Skip on prereleases (e.g. v0.1.0-rc1). Also skip when deploy secrets
-    # are not configured on the repo, otherwise this job fails on every
-    # release with empty-string SSH key / host (ssh-keyscan exits non-zero
-    # on an empty hostname). Once you set DEPLOY_HOST, DEPLOY_USER, and
-    # DEPLOY_SSH_KEY in repo Settings → Secrets, this guard becomes true
-    # automatically and the deploy starts running on the next release.
+    # Bind to the `production` environment so deploy secrets/variables
+    # configured under Settings → Environments → production are visible
+    # (repo-level vars do NOT inherit into environment-scoped jobs and
+    # vice-versa). DEPLOY_ENABLED is a string variable on the environment;
+    # set it to "true" once DEPLOY_HOST/DEPLOY_USER/DEPLOY_SSH_KEY secrets
+    # are also configured. Until then this job is skipped, so empty SSH
+    # secrets can't fail ssh-keyscan and break the workflow.
+    environment: production
     if: |
       !contains(github.ref_name, '-')
       && vars.DEPLOY_ENABLED == 'true'
