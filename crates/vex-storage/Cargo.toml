@@ -31,7 +31,7 @@ time       = { workspace = true }
 # Optional cloud-backend dependencies, gated behind features so the local
 # `vex` CLI does not pull in the AWS SDK or SQLx.
 aws-config = { version = "1.5", optional = true, features = ["behavior-version-latest"] }
-aws-sdk-s3 = { version = "1.50", optional = true }
+aws-sdk-s3 = { version = "1.50", optional = true, default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio", "sigv4a"] }
 sqlx       = { version = "0.8", optional = true, default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
 tokio      = { version = "1", optional = true, features = ["rt-multi-thread", "macros", "sync"] }
 uuid       = { workspace = true, optional = true }
