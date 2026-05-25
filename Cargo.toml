@@ -17,12 +17,12 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.82"
 publish = false
 license-file = "LICENSE"
-repository = "https://github.com/Planmorph-Org/vex"
+repository = "https://github.com/PlanMorph-Org/vex"
 authors = ["Planmorph"]
 
 [workspace.lints.rust]
