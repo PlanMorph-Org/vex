@@ -49,6 +49,11 @@ enum Cmd {
         /// IFC file to import.
         file: PathBuf,
     },
+    /// Read fast IFC routing metadata for desktop agents.
+    IfcIntake {
+        /// IFC file to inspect.
+        file: PathBuf,
+    },
     /// Record the staged tree as a commit.
     Commit {
         /// Commit message.
@@ -319,6 +324,26 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 );
             } else {
                 println!("staged tree {hash}");
+            }
+        }
+        Cmd::IfcIntake { file } => {
+            let metadata = vex_ifc_parser::parse_intake_metadata(&file).context("ifc intake")?;
+            if cli.json {
+                println!("{}", serde_json::to_string_pretty(&metadata)?);
+            } else {
+                println!(
+                    "project_guid: {}",
+                    metadata.project_guid.as_deref().unwrap_or("")
+                );
+                println!(
+                    "project_name: {}",
+                    metadata.project_name.as_deref().unwrap_or("")
+                );
+                println!("author: {}", metadata.author.as_deref().unwrap_or(""));
+                println!(
+                    "originating_system: {}",
+                    metadata.originating_system.as_deref().unwrap_or("")
+                );
             }
         }
         Cmd::Commit {

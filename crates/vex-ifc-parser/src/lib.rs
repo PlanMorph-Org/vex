@@ -18,12 +18,14 @@
 
 pub mod guid;
 pub mod header;
+pub mod intake;
 pub mod lexer;
 pub mod limits;
 pub mod parser;
 
 pub use guid::{decode_global_id, render_uuid};
 pub use header::IfcHeader;
+pub use intake::{parse_intake_metadata, IfcIntakeMetadata};
 pub use lexer::{Lexer, Token};
 pub use limits::ParseLimits;
 pub use parser::{Parser, RawEntity, Value};

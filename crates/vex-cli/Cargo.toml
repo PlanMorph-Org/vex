@@ -18,6 +18,7 @@ workspace = true
 [dependencies]
 vex-core         = { workspace = true }
 vex-diff         = { workspace = true }
+vex-ifc-parser   = { workspace = true }
 vex-utils        = { workspace = true }
 vex-api          = { workspace = true }
 vex-protocol     = { workspace = true }
