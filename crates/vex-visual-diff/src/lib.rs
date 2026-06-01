@@ -59,6 +59,74 @@ impl Counts {
 /// breaking change to field names, types, or semantics.
 pub const SCHEMA: &str = "vex.visual-diff/1";
 
+/// Schema family name (the part before the `/<major>` suffix). Stable across
+/// compatible revisions.
+pub const SCHEMA_NAME: &str = "vex.visual-diff";
+
+/// Current major version of [`SCHEMA`]. Consumers that understand this major
+/// can deserialize any payload tagged with the same name + major.
+pub const SCHEMA_MAJOR: u32 = 1;
+
+/// Why a schema tag was rejected. Surfaced at trust boundaries (the bridge,
+/// the cloud ingest, the viewer) so a producer/consumer version skew fails
+/// loudly instead of silently mis-rendering a diff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SchemaError {
+    /// The tag did not match the `name/<major>` shape at all.
+    Malformed(String),
+    /// The tag is well-formed but for a different schema family or an
+    /// incompatible major version.
+    Incompatible { found: String, expected: String },
+}
+
+impl std::fmt::Display for SchemaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SchemaError::Malformed(tag) => {
+                write!(f, "malformed visual-diff schema tag `{tag}` (expected `name/<major>`)")
+            }
+            SchemaError::Incompatible { found, expected } => write!(
+                f,
+                "incompatible visual-diff schema `{found}` (this build expects `{expected}`)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SchemaError {}
+
+/// Split a schema tag like `vex.visual-diff/1` into its `(name, major)` parts.
+/// Returns `None` if the tag does not have exactly one `/` separating a
+/// non-empty name from a numeric major.
+pub fn parse_schema(tag: &str) -> Option<(&str, u32)> {
+    let (name, major) = tag.rsplit_once('/')?;
+    if name.is_empty() {
+        return None;
+    }
+    Some((name, major.parse().ok()?))
+}
+
+/// Whether `tag` names the same schema family and major version this build
+/// produces, and is therefore safe to deserialize into [`VisualDiff`].
+pub fn is_compatible(tag: &str) -> bool {
+    matches!(parse_schema(tag), Some((name, major)) if name == SCHEMA_NAME && major == SCHEMA_MAJOR)
+}
+
+/// Strictly validate a schema tag, returning a descriptive error instead of
+/// silently accepting unknown versions (which the serde default does for the
+/// *absent*-field case only). Call this at any boundary that ingests a
+/// `VisualDiff` from another process.
+pub fn validate_schema(tag: &str) -> Result<(), SchemaError> {
+    match parse_schema(tag) {
+        None => Err(SchemaError::Malformed(tag.to_string())),
+        Some((name, major)) if name == SCHEMA_NAME && major == SCHEMA_MAJOR => Ok(()),
+        Some(_) => Err(SchemaError::Incompatible {
+            found: tag.to_string(),
+            expected: SCHEMA.to_string(),
+        }),
+    }
+}
+
 /// Default value used by serde when an older payload lacks the field.
 fn default_schema() -> String {
     SCHEMA.to_string()
@@ -81,6 +149,15 @@ pub struct VisualDiff {
     /// `"3 walls moved, 2 doors added, 1 column added"`.
     pub summary: String,
     pub counts: Counts,
+}
+
+impl VisualDiff {
+    /// Verify this payload's `schema` tag is compatible with the version this
+    /// build understands. Producers can assert before emitting; consumers can
+    /// assert after deserializing.
+    pub fn validate_schema(&self) -> Result<(), SchemaError> {
+        validate_schema(&self.schema)
+    }
 }
 
 /// Classify a [`DiffReport`] into a [`VisualDiff`] (without summary — the
@@ -431,5 +508,96 @@ mod tests {
         assert_eq!(v.counts.added, 1);
         assert_eq!(v.counts.removed, 1);
         assert!(v.elements[0].hint.is_none());
+    }
+
+    #[test]
+    fn classify_stamps_current_schema_and_validates() {
+        let r = DiffReport {
+            changes: vec![],
+            summary: DiffSummary {
+                added: 0,
+                removed: 0,
+                modified: 0,
+            },
+        };
+        let v = classify(&r, "a", "b");
+        assert_eq!(v.schema, SCHEMA);
+        assert!(v.validate_schema().is_ok());
+    }
+
+    #[test]
+    fn parse_schema_splits_name_and_major() {
+        assert_eq!(parse_schema("vex.visual-diff/1"), Some(("vex.visual-diff", 1)));
+        assert_eq!(parse_schema("vex.visual-diff/2"), Some(("vex.visual-diff", 2)));
+        assert_eq!(parse_schema("no-major"), None);
+        assert_eq!(parse_schema("/1"), None);
+        assert_eq!(parse_schema("name/x"), None);
+    }
+
+    #[test]
+    fn compat_and_validation_reject_skew() {
+        assert!(is_compatible(SCHEMA));
+        assert!(!is_compatible("vex.visual-diff/2"));
+        assert!(!is_compatible("other.schema/1"));
+
+        assert_eq!(validate_schema(SCHEMA), Ok(()));
+        assert!(matches!(
+            validate_schema("vex.visual-diff/2"),
+            Err(SchemaError::Incompatible { .. })
+        ));
+        assert!(matches!(
+            validate_schema("garbage"),
+            Err(SchemaError::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn absent_schema_field_defaults_to_current() {
+        // A legacy payload that predates the `schema` field still loads and
+        // is treated as the current version (back-compat for stored diffs).
+        let json = r#"{"from":"a","to":"b","elements":[],"summary":"","counts":{"added":0,"removed":0,"moved":0,"renamed":0,"modified":0}}"#;
+        let v: VisualDiff = serde_json::from_str(json).expect("legacy payload loads");
+        assert_eq!(v.schema, SCHEMA);
+        assert!(v.validate_schema().is_ok());
+    }
+
+    #[test]
+    fn golden_payload_round_trips_field_for_field() {
+        // Golden contract sample. If a field name/shape changes without a
+        // schema major bump, this fails — forcing an explicit version decision.
+        let golden = r#"{
+  "schema": "vex.visual-diff/1",
+  "from": "rev-a",
+  "to": "rev-b",
+  "elements": [
+    {
+      "id": { "GlobalId": "1hWHpL2eHpg_GUuvaySq00" },
+      "type_name": "IFCWALL",
+      "kind": "renamed",
+      "deltas": [
+        { "key": "_2", "before": { "Text": "Wall-A" }, "after": { "Text": "Wall-B" } }
+      ],
+      "hint": "Name: Wall-A → Wall-B"
+    }
+  ],
+  "summary": "1 wall renamed",
+  "counts": { "added": 0, "removed": 0, "moved": 0, "renamed": 1, "modified": 0 }
+}"#;
+        let parsed: VisualDiff = serde_json::from_str(golden).expect("golden parses");
+        assert!(parsed.validate_schema().is_ok());
+        assert_eq!(parsed.from, "rev-a");
+        assert_eq!(parsed.to, "rev-b");
+        assert_eq!(parsed.counts.renamed, 1);
+        assert_eq!(parsed.counts.total(), 1);
+        assert_eq!(parsed.elements.len(), 1);
+        assert_eq!(parsed.elements[0].type_name, "IFCWALL");
+        assert_eq!(parsed.elements[0].kind, ChangeKind::Renamed);
+
+        // Re-serializing and re-parsing must be stable (no field drift).
+        let reserialized = serde_json::to_string(&parsed).expect("serializes");
+        let reparsed: VisualDiff =
+            serde_json::from_str(&reserialized).expect("round-trips");
+        assert_eq!(reparsed.schema, parsed.schema);
+        assert_eq!(reparsed.elements[0].hint, parsed.elements[0].hint);
     }
 }

@@ -14,3 +14,6 @@ workspace = true
 [dependencies]
 vex-diff = { workspace = true }
 serde    = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
