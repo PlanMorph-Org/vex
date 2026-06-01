@@ -83,7 +83,10 @@ impl std::fmt::Display for SchemaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SchemaError::Malformed(tag) => {
-                write!(f, "malformed visual-diff schema tag `{tag}` (expected `name/<major>`)")
+                write!(
+                    f,
+                    "malformed visual-diff schema tag `{tag}` (expected `name/<major>`)"
+                )
             }
             SchemaError::Incompatible { found, expected } => write!(
                 f,
@@ -527,8 +530,14 @@ mod tests {
 
     #[test]
     fn parse_schema_splits_name_and_major() {
-        assert_eq!(parse_schema("vex.visual-diff/1"), Some(("vex.visual-diff", 1)));
-        assert_eq!(parse_schema("vex.visual-diff/2"), Some(("vex.visual-diff", 2)));
+        assert_eq!(
+            parse_schema("vex.visual-diff/1"),
+            Some(("vex.visual-diff", 1))
+        );
+        assert_eq!(
+            parse_schema("vex.visual-diff/2"),
+            Some(("vex.visual-diff", 2))
+        );
         assert_eq!(parse_schema("no-major"), None);
         assert_eq!(parse_schema("/1"), None);
         assert_eq!(parse_schema("name/x"), None);
@@ -595,8 +604,7 @@ mod tests {
 
         // Re-serializing and re-parsing must be stable (no field drift).
         let reserialized = serde_json::to_string(&parsed).expect("serializes");
-        let reparsed: VisualDiff =
-            serde_json::from_str(&reserialized).expect("round-trips");
+        let reparsed: VisualDiff = serde_json::from_str(&reserialized).expect("round-trips");
         assert_eq!(reparsed.schema, parsed.schema);
         assert_eq!(reparsed.elements[0].hint, parsed.elements[0].hint);
     }
