@@ -94,6 +94,18 @@ enum Cmd {
     /// Visual change report since the previous saved version. Convenience
     /// alias of `compare HEAD~1 HEAD`.
     Changes,
+    /// List the semantic elements present at a revision. Reads node blobs
+    /// directly from the committed tree, so the output is authoritative — no
+    /// IFC re-parsing or filename guessing. Use `--json` for structured output.
+    Elements {
+        /// Revision to inspect (commit, branch, or tag). Defaults to `HEAD`.
+        #[arg(default_value = "HEAD")]
+        reference: String,
+        /// Only include entities that carry an IFC `GlobalId` (drops geometry
+        /// primitives such as cartesian points and direction vectors).
+        #[arg(long)]
+        rooted: bool,
+    },
     /// Three-way merge between two revisions based on their common ancestor.
     Merge {
         /// Our side.
@@ -455,6 +467,33 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                     } else {
                         println!("No previous version to compare against.");
                     }
+                }
+            }
+        }
+        Cmd::Elements { reference, rooted } => {
+            let repo = Repository::open(&repo_hint).context("open")?;
+            let (hash, mut elements) = repo.elements(&reference).context("elements")?;
+            if rooted {
+                elements.retain(|e| e.global_id.is_some());
+            }
+            if cli.json {
+                let payload = serde_json::json!({
+                    "schema": "vex.elements/1",
+                    "ref": reference,
+                    "commit": hash.to_hex(),
+                    "count": elements.len(),
+                    "elements": elements,
+                });
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!("{} elements at {}", elements.len(), &hash.to_hex()[..12]);
+                for e in &elements {
+                    let gid = e.global_id.as_deref().unwrap_or("-");
+                    let name = e.name.as_deref().unwrap_or("");
+                    println!(
+                        "  #{:<7} {:<28} {:<24} {}",
+                        e.step_id, e.type_name, gid, name
+                    );
                 }
             }
         }

@@ -33,6 +33,22 @@ pub struct Repository {
     profile: Profile,
 }
 
+/// One semantic element from a committed tree. Mirrors the stored [`Blob`]
+/// identity fields without geometry or the full property payload. Produced by
+/// [`Repository::elements`] for authoritative element inventories (no IFC
+/// re-parsing or filename guessing).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ElementRecord {
+    /// IFC entity type, upper-cased (e.g. `IFCWALLSTANDARDCASE`).
+    pub type_name: String,
+    /// STEP line id within the source file.
+    pub step_id: u64,
+    /// IFC `GlobalId` (22-char base64) when the entity carries one.
+    pub global_id: Option<String>,
+    /// Human label (IFC `Name` attribute, slot `_2`) when present.
+    pub name: Option<String>,
+}
+
 impl Repository {
     /// Create a new repository at `path`, writing an initial manifest.
     pub fn init(path: impl AsRef<Path>) -> VexResult<Self> {
@@ -275,6 +291,35 @@ impl Repository {
     pub fn diff_refs_text(&self, a: &str, b: &str) -> VexResult<String> {
         let r = self.diff_refs(a, b)?;
         Ok(render_text(&r))
+    }
+
+    /// List the semantic elements present at a given ref. Reads node blobs
+    /// directly from the committed tree, so the result is authoritative — it
+    /// reflects exactly what was committed, with no IFC re-parsing or filename
+    /// guessing. Returns the resolved commit hash and the element records,
+    /// sorted by STEP id.
+    pub fn elements(&self, reference: &str) -> VexResult<(Hash256, Vec<ElementRecord>)> {
+        let hash = self.resolve_ref(reference)?;
+        let commit = self.store.get_commit(hash)?;
+        let tree = self.store.get_tree(commit.tree)?;
+        let mut out = Vec::with_capacity(tree.entries.len());
+        for entry in &tree.entries {
+            let blob = self.store.get_blob(entry.blob_hash)?;
+            // The IFC `Name` attribute is positional slot `_2` on every
+            // `IfcRoot`-derived entity (GlobalId, OwnerHistory, Name, ...).
+            let name = blob.props.iter().find_map(|(k, v)| match v {
+                SerValue::Text(s) if k == "_2" && !s.is_empty() => Some(s.clone()),
+                _ => None,
+            });
+            out.push(ElementRecord {
+                type_name: blob.type_name,
+                step_id: blob.step_id,
+                global_id: blob.global_id,
+                name,
+            });
+        }
+        out.sort_by_key(|e| e.step_id);
+        Ok((hash, out))
     }
 
     /// Audit the entire object store. Returns the object count.
