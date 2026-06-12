@@ -32,7 +32,10 @@ use vex_graph::{hash_graph, HashConfig, IfcGraph, Node, NodeId, Value};
 use vex_utils::{Hash256, StringInterner};
 
 /// Which semantic layer a change occupies. Drives rendering + merge rules.
+/// Serialized `snake_case` (`property` / `relationship` / `shape`) — part of
+/// the `vex.visual-diff/1` public schema via `ElementChange::layer`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Layer {
     Property,
     Relationship,
@@ -45,6 +48,17 @@ pub struct PropDelta {
     pub key: String,
     pub before: Option<SerValue>,
     pub after: Option<SerValue>,
+}
+
+/// Cartesian location delta resolved from a product's `ObjectPlacement`
+/// chain (`IfcLocalPlacement → IfcAxis2Placement3D → IfcCartesianPoint`).
+/// Coordinates are the *local* placement location — relative-placement
+/// composition is future work — which is exactly what changes when a user
+/// moves an element in their CAD tool.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlacementDelta {
+    pub before: Option<[f64; 3]>,
+    pub after: Option<[f64; 3]>,
 }
 
 /// Self-contained serialized value — mirrors `vex_graph::Value` but with all
@@ -77,6 +91,10 @@ pub enum Change {
         type_name: String,
         deltas: Vec<PropDelta>,
         layer: Layer,
+        /// Location change when the element's placement moved. Present only
+        /// when the resolved placement location differs beyond tolerance.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placement: Option<PlacementDelta>,
     },
 }
 
@@ -121,22 +139,14 @@ pub fn diff(
     let idx_by_guid_a = index_by_global_id(a);
     let idx_by_guid_b = index_by_global_id(b);
 
-    // Build hash indexes.
-    let mut by_hash_a: AHashMap<Hash256, NodeId> = AHashMap::with_capacity(a.node_count());
-    let mut by_hash_b: AHashMap<Hash256, NodeId> = AHashMap::with_capacity(b.node_count());
-    for (id, _) in &a.nodes {
-        by_hash_a.insert(ha.per_node[&id], id);
-    }
-    for (id, _) in &b.nodes {
-        by_hash_b.insert(hb.per_node[&id], id);
-    }
-
     let mut matched_a: AHashSet<NodeId> = AHashSet::with_capacity(a.node_count());
     let mut matched_b: AHashSet<NodeId> = AHashSet::with_capacity(b.node_count());
     let mut changes: Vec<Change> = Vec::new();
     let mut summary = DiffSummary::default();
 
     // === Pass 1: match by GlobalId ===
+    let geom_a = GeomIndex::new(a, interner_a, &ha, &cfg.tolerance);
+    let geom_b = GeomIndex::new(b, interner_b, &hb, &cfg.tolerance);
     for (guid, &id_a) in &idx_by_guid_a {
         if let Some(&id_b) = idx_by_guid_b.get(guid) {
             matched_a.insert(id_a);
@@ -147,7 +157,11 @@ pub fn diff(
             let node_a = &a.nodes[id_a];
             let node_b = &b.nodes[id_b];
             let deltas = diff_properties(node_a, interner_a, node_b, interner_b);
-            let layer = if deltas.is_empty() {
+            let placement = placement_delta(&geom_a, id_a, &geom_b, id_b);
+            let shape_changed = geom_a.fingerprint(id_a) != geom_b.fingerprint(id_b);
+            let layer = if shape_changed {
+                Layer::Shape
+            } else if deltas.is_empty() {
                 Layer::Relationship
             } else {
                 Layer::Property
@@ -157,27 +171,35 @@ pub fn diff(
                 type_name: interner_b.resolve(node_b.type_name).to_string(),
                 deltas,
                 layer,
+                placement,
             });
             summary.modified += 1;
         }
     }
 
-    for id in &matched_a {
-        by_hash_a.remove(&ha.per_node[id]);
+    // === Pass 2: match by exact structural hash (multiset) ===
+    // Anonymous sub-entities are routinely duplicated in real exports (every
+    // wall referencing an identical profile / cartesian point). Hash matching
+    // must therefore pair *multisets*: k identical nodes on each side match
+    // k-for-k in deterministic (insertion) order; any surplus stays unmatched.
+    let mut by_hash_a: AHashMap<Hash256, Vec<NodeId>> = AHashMap::new();
+    for (id, _) in &a.nodes {
+        if !matched_a.contains(&id) {
+            by_hash_a.entry(ha.per_node[&id]).or_default().push(id);
+        }
     }
-    for id in &matched_b {
-        by_hash_b.remove(&hb.per_node[id]);
+    let mut by_hash_b: AHashMap<Hash256, Vec<NodeId>> = AHashMap::new();
+    for (id, _) in &b.nodes {
+        if !matched_b.contains(&id) {
+            by_hash_b.entry(hb.per_node[&id]).or_default().push(id);
+        }
     }
-
-    // === Pass 2: match by exact structural hash ===
-    let a_hashes: Vec<Hash256> = by_hash_a.keys().copied().collect();
-    for h in a_hashes {
-        if let Some(&id_b) = by_hash_b.get(&h) {
-            let id_a = by_hash_a[&h];
-            matched_a.insert(id_a);
-            matched_b.insert(id_b);
-            by_hash_a.remove(&h);
-            by_hash_b.remove(&h);
+    for (h, ids_a) in &by_hash_a {
+        if let Some(ids_b) = by_hash_b.get(h) {
+            for (ia, ib) in ids_a.iter().zip(ids_b.iter()) {
+                matched_a.insert(*ia);
+                matched_b.insert(*ib);
+            }
         }
     }
 
@@ -214,6 +236,159 @@ fn index_by_global_id(g: &IfcGraph) -> AHashMap<String, NodeId> {
         }
     }
     out
+}
+
+/// Max BFS depth when collecting a node's reachable geometry hashes. Product
+/// shape chains are shallow (product → shape → representation → item ≈ 4);
+/// the cap keeps the walk local instead of crawling spatial containment.
+const GEOM_BFS_DEPTH: usize = 8;
+
+/// Per-side adjacency + geometry lookup used for shape attribution and
+/// placement resolution.
+struct GeomIndex<'g> {
+    graph: &'g IfcGraph,
+    out: AHashMap<NodeId, Vec<&'g vex_graph::ir::Edge>>,
+    geometry: &'g AHashMap<NodeId, Hash256>,
+    interner: &'g StringInterner,
+    tol: vex_utils::Tolerance,
+}
+
+impl<'g> GeomIndex<'g> {
+    fn new(
+        graph: &'g IfcGraph,
+        interner: &'g StringInterner,
+        hashes: &'g vex_graph::GraphHashes,
+        tol: &vex_utils::Tolerance,
+    ) -> Self {
+        let mut out: AHashMap<NodeId, Vec<&vex_graph::ir::Edge>> =
+            AHashMap::with_capacity(graph.node_count());
+        for e in &graph.edges {
+            out.entry(e.from).or_default().push(e);
+        }
+        for v in out.values_mut() {
+            v.sort_by_key(|e| (e.slot, e.list_index));
+        }
+        Self {
+            graph,
+            out,
+            geometry: &hashes.geometry,
+            interner,
+            tol: *tol,
+        }
+    }
+
+    fn edges(&self, id: NodeId) -> &[&'g vex_graph::ir::Edge] {
+        self.out.get(&id).map_or(&[], Vec::as_slice)
+    }
+
+    fn type_of(&self, id: NodeId) -> String {
+        self.graph
+            .nodes
+            .get(id)
+            .map(|n| self.interner.resolve(n.type_name).to_ascii_uppercase())
+            .unwrap_or_default()
+    }
+
+    /// Sorted multiset hash of all geometry hashes reachable from `id` via
+    /// outgoing edges (bounded BFS). `Hash256::ZERO` when no geometry is
+    /// reachable — two zero fingerprints compare equal, which is correct:
+    /// no shape on either side means no shape change.
+    fn fingerprint(&self, id: NodeId) -> Hash256 {
+        let mut collected: Vec<[u8; 32]> = Vec::new();
+        let mut visited: AHashSet<NodeId> = AHashSet::new();
+        let mut frontier = vec![id];
+        visited.insert(id);
+        for _ in 0..=GEOM_BFS_DEPTH {
+            if frontier.is_empty() {
+                break;
+            }
+            let mut next = Vec::new();
+            for n in frontier.drain(..) {
+                if let Some(h) = self.geometry.get(&n) {
+                    collected.push(*h.as_bytes());
+                }
+                for e in self.edges(n) {
+                    if visited.insert(e.to) {
+                        next.push(e.to);
+                    }
+                }
+            }
+            frontier = next;
+        }
+        if collected.is_empty() {
+            return Hash256::ZERO;
+        }
+        collected.sort_unstable();
+        let mut h = vex_utils::Hasher::new(vex_utils::hash::HashAlgo::Blake3);
+        h.update(b"geomfp:");
+        h.update(&(collected.len() as u64).to_be_bytes());
+        for c in &collected {
+            h.update(c);
+        }
+        h.finalize()
+    }
+
+    /// Resolve a product's local placement location:
+    /// product —slot 5→ `IfcLocalPlacement` —slot 1→ `IfcAxis2Placement3D`
+    /// —slot 0→ `IfcCartesianPoint(Coordinates)`.
+    fn placement_location(&self, id: NodeId) -> Option<[f64; 3]> {
+        let placement = self
+            .edges(id)
+            .iter()
+            .find(|e| e.slot == 5)
+            .map(|e| e.to)
+            .filter(|p| self.type_of(*p) == "IFCLOCALPLACEMENT")?;
+        // IfcLocalPlacement(PlacementRelTo, RelativePlacement)
+        let axis = self
+            .edges(placement)
+            .iter()
+            .find(|e| e.slot == 1)
+            .map(|e| e.to)?;
+        // IfcAxis2Placement3D(Location, Axis, RefDirection)
+        let point = self
+            .edges(axis)
+            .iter()
+            .find(|e| e.slot == 0)
+            .map(|e| e.to)
+            .filter(|p| self.type_of(*p) == "IFCCARTESIANPOINT")?;
+        let node = self.graph.nodes.get(point)?;
+        let (_, v) = node.props.first()?;
+        let Value::List(xs) = v else { return None };
+        let mut coords = [0.0f64; 3];
+        for (i, c) in coords.iter_mut().enumerate() {
+            *c = match xs.get(i) {
+                Some(Value::Real(x)) => *x,
+                Some(Value::Int(n)) => *n as f64,
+                None if i == 2 => 0.0,
+                _ => return None,
+            };
+        }
+        Some(coords)
+    }
+
+    fn quantized(&self, p: [f64; 3]) -> [f64; 3] {
+        p.map(|c| self.tol.quantize_linear(c))
+    }
+}
+
+/// Compare placement locations across two matched nodes; `Some` only when
+/// they differ beyond tolerance. Reported coordinates are the raw source
+/// values (display-friendly); the equality check uses quantized values so
+/// exporter float noise below tolerance never reports a move.
+fn placement_delta(
+    ga: &GeomIndex<'_>,
+    id_a: NodeId,
+    gb: &GeomIndex<'_>,
+    id_b: NodeId,
+) -> Option<PlacementDelta> {
+    let before = ga.placement_location(id_a);
+    let after = gb.placement_location(id_b);
+    let qb = before.map(|p| ga.quantized(p));
+    let qa = after.map(|p| gb.quantized(p));
+    if qb == qa {
+        return None;
+    }
+    Some(PlacementDelta { before, after })
 }
 
 fn best_identity(node: &Node, hash: Hash256) -> Identity {
@@ -333,8 +508,17 @@ pub fn render_text(report: &DiffReport) -> String {
                 type_name,
                 deltas,
                 layer,
+                placement,
             } => {
                 let _ = writeln!(out, "~ {type_name} {} [{layer:?}]", identity_text(identity));
+                if let Some(p) = placement {
+                    let _ = writeln!(
+                        out,
+                        "    placement : {} -> {}",
+                        fmt_point(p.before.as_ref()),
+                        fmt_point(p.after.as_ref())
+                    );
+                }
                 for d in deltas {
                     let _ = writeln!(out, "    {} : {:?} -> {:?}", d.key, d.before, d.after);
                 }
@@ -354,6 +538,13 @@ fn identity_text(id: &Identity) -> String {
         Identity::GlobalId(s) => format!("GlobalId={s}"),
         Identity::StructuralHash(s) => format!("Hash={}", &s[..16.min(s.len())]),
         Identity::StepId(n) => format!("#{n}"),
+    }
+}
+
+fn fmt_point(p: Option<&[f64; 3]>) -> String {
+    match p {
+        Some([x, y, z]) => format!("({x}, {y}, {z})"),
+        None => "∅".to_string(),
     }
 }
 
@@ -412,5 +603,92 @@ END-ISO-10303-21;
         let r = diff(&a, &ia, &b, &ib, &HashConfig::default());
         assert_eq!(r.summary.added, 1);
         assert_eq!(r.summary.removed, 0);
+    }
+
+    const PLACED_WALL: &str = "\
+ISO-10303-21;
+HEADER; FILE_DESCRIPTION((''),'2;1'); FILE_NAME('','',(''),(''),'','',''); FILE_SCHEMA(('IFC4')); ENDSEC;
+DATA;
+#1 = IFCCARTESIANPOINT((0.0, 0.0, 0.0));
+#2 = IFCAXIS2PLACEMENT3D(#1, $, $);
+#3 = IFCLOCALPLACEMENT($, #2);
+#4 = IFCWALL('2O2Fr$t4X7Zf8NOew3FNr2',$,'Wall-1',$,$,#3,$,$,.STANDARD.);
+ENDSEC;
+END-ISO-10303-21;
+";
+
+    #[test]
+    fn moved_wall_yields_placement_delta() {
+        let (a, ia) = build(PLACED_WALL);
+        let moved = PLACED_WALL.replace("((0.0, 0.0, 0.0))", "((0.2, 0.0, 0.0))");
+        let (b, ib) = build(&moved);
+        let r = diff(&a, &ia, &b, &ib, &HashConfig::default());
+        assert_eq!(r.summary.modified, 1, "changes: {:?}", r.changes);
+        let m = r
+            .changes
+            .iter()
+            .find_map(|c| match c {
+                Change::Modified {
+                    placement: Some(p), ..
+                } => Some(p.clone()),
+                _ => None,
+            })
+            .expect("placement delta on the wall");
+        assert_eq!(m.before, Some([0.0, 0.0, 0.0]));
+        assert_eq!(m.after, Some([0.2, 0.0, 0.0]));
+    }
+
+    const MESH_WALL: &str = "\
+ISO-10303-21;
+HEADER; FILE_DESCRIPTION((''),'2;1'); FILE_NAME('','',(''),(''),'','',''); FILE_SCHEMA(('IFC4')); ENDSEC;
+DATA;
+#1 = IFCCARTESIANPOINTLIST3D(((0.0,0.0,0.0),(1.0,0.0,0.0),(1.0,1.0,0.0),(0.0,1.0,0.0)));
+#2 = IFCTRIANGULATEDFACESET(#1, $, .T., ((1,2,3),(1,3,4)), $);
+#3 = IFCSHAPEREPRESENTATION($, 'Body', 'Tessellation', (#2));
+#4 = IFCPRODUCTDEFINITIONSHAPE($, $, (#3));
+#5 = IFCWALL('2O2Fr$t4X7Zf8NOew3FNr2',$,'Wall-1',$,$,$,#4,$,.STANDARD.);
+ENDSEC;
+END-ISO-10303-21;
+";
+
+    #[test]
+    fn mesh_edit_classified_as_shape_layer() {
+        let (a, ia) = build(MESH_WALL);
+        let edited = MESH_WALL.replace("(1.0,1.0,0.0)", "(1.0,1.4,0.0)");
+        let (b, ib) = build(&edited);
+        let r = diff(&a, &ia, &b, &ib, &HashConfig::default());
+        let wall = r
+            .changes
+            .iter()
+            .find(|c| {
+                matches!(
+                    c,
+                    Change::Modified {
+                        identity: Identity::GlobalId(_),
+                        ..
+                    }
+                )
+            })
+            .expect("wall modified");
+        let Change::Modified { layer, .. } = wall else {
+            unreachable!()
+        };
+        assert_eq!(*layer, Layer::Shape);
+    }
+
+    #[test]
+    fn rename_still_property_layer_with_mesh_present() {
+        let (a, ia) = build(MESH_WALL);
+        let renamed = MESH_WALL.replace("'Wall-1'", "'Wall-2'");
+        let (b, ib) = build(&renamed);
+        let r = diff(&a, &ia, &b, &ib, &HashConfig::default());
+        let Change::Modified { layer, .. } = &r.changes[0] else {
+            panic!("expected modified, got {:?}", r.changes)
+        };
+        assert_eq!(
+            *layer,
+            Layer::Property,
+            "unchanged mesh must not trip Shape"
+        );
     }
 }

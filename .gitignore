@@ -9,3 +9,6 @@ Cargo.lock.bak
 /examples/*.ifc
 !/examples/*.min.ifc
 !/examples/README.md
+
+# Real-world fidelity corpus (fetched, pinned — see tools/fetch-fixtures.sh)
+crates/vex-core/tests/fixtures/corpus/

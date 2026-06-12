@@ -20,7 +20,8 @@
           }
         }
       ],
-      "hint": "Name: Wall-A \u2192 Wall-B"
+      "hint": "Name: Wall-A → Wall-B",
+      "layer": "property"
     },
     {
       "id": {
@@ -36,6 +37,7 @@
     "removed": 0,
     "moved": 0,
     "renamed": 1,
-    "modified": 0
+    "modified": 0,
+    "internal": 0
   }
 }

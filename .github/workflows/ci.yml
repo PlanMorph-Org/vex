@@ -71,3 +71,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+  corpus:
+    name: Fidelity corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cache corpus fixtures
+        uses: actions/cache@v4
+        with:
+          path: crates/vex-core/tests/fixtures/corpus
+          key: ifc-corpus-cecf656112a54a0d8cdd8b06b9398bfea5163886-v1
+
+      - name: Fetch corpus (pinned, checksummed)
+        run: tools/fetch-fixtures.sh
+
+      - name: Run fidelity battery
+        run: cargo test -p vex-core --test fidelity
+
+      - name: Scale smoke test
+        run: VEX_SCALE_STOREYS=10 cargo test -p vex-core --test fidelity -- --ignored scale_import_commit_diff

@@ -64,7 +64,61 @@ impl HashConfig {
 #[derive(Debug)]
 pub struct GraphHashes {
     pub per_node: AHashMap<NodeId, Hash256>,
+    /// Geometry hash for shape-bearing nodes (subset of `per_node` keys).
+    /// Lets consumers (the diff engine) attribute a node change to geometry
+    /// without re-deriving shapes.
+    pub geometry: AHashMap<NodeId, Hash256>,
     pub root: Hash256,
+}
+
+/// Seed hash for one node: type + raw props (minus ignored keys and slots
+/// covered by the node's canonical geometry hash) + geometry hash.
+///
+/// Excluding geometry-consumed slots is what makes structural identity
+/// immune to exporter-order noise (permuted vertex tables, rewritten index
+/// lists): their canonical form participates via the geometry hash instead.
+fn seed_node(
+    node: &crate::ir::Node,
+    geom_hash: Option<&Hash256>,
+    interner: &StringInterner,
+    cfg: &HashConfig,
+) -> Hash256 {
+    let mut h = Hasher::new(HashAlgo::Blake3);
+    h.update(b"node:");
+    h.update(interner.resolve(node.type_name).as_bytes());
+    let consumed: &[u16] = if geom_hash.is_some() {
+        geometry::consumed_prop_slots(interner.resolve(node.type_name))
+    } else {
+        &[]
+    };
+    let mut props: Vec<_> = node
+        .props
+        .iter()
+        .filter(|(k, _)| {
+            let key = interner.resolve(*k);
+            if cfg.ignore_prop_keys.contains(key) {
+                return false;
+            }
+            if consumed.is_empty() {
+                return true;
+            }
+            !key.strip_prefix('_')
+                .and_then(|s| s.parse::<u16>().ok())
+                .is_some_and(|slot| consumed.contains(&slot))
+        })
+        .collect();
+    props.sort_by_key(|(k, _)| interner.resolve(*k));
+    for (k, v) in props {
+        h.update(b"\0k:");
+        h.update(interner.resolve(*k).as_bytes());
+        h.update(b"\0v:");
+        hash_value(&mut h, v, interner, &cfg.tolerance);
+    }
+    if let Some(gh) = geom_hash {
+        h.update(b"\0geom:");
+        h.update(gh.as_bytes());
+    }
+    h.finalize()
 }
 
 /// Compute canonical hashes for every node and a root hash for the graph.
@@ -80,28 +134,7 @@ pub fn hash_graph(graph: &IfcGraph, interner: &StringInterner, cfg: &HashConfig)
         .iter()
         .collect::<Vec<_>>()
         .par_iter()
-        .map(|(id, node)| {
-            let mut h = Hasher::new(HashAlgo::Blake3);
-            h.update(b"node:");
-            h.update(interner.resolve(node.type_name).as_bytes());
-            let mut props: Vec<_> = node
-                .props
-                .iter()
-                .filter(|(k, _)| !cfg.ignore_prop_keys.contains(interner.resolve(*k)))
-                .collect();
-            props.sort_by_key(|(k, _)| interner.resolve(*k));
-            for (k, v) in props {
-                h.update(b"\0k:");
-                h.update(interner.resolve(*k).as_bytes());
-                h.update(b"\0v:");
-                hash_value(&mut h, v, interner, &cfg.tolerance);
-            }
-            if let Some(gh) = geom.get(id) {
-                h.update(b"\0geom:");
-                h.update(gh.as_bytes());
-            }
-            (*id, h.finalize())
-        })
+        .map(|(id, node)| (*id, seed_node(node, geom.get(id), interner, cfg)))
         .collect();
     let mut current: AHashMap<NodeId, Hash256> = AHashMap::with_capacity(seed_vec.len());
     for (id, h) in seed_vec {
@@ -163,6 +196,7 @@ pub fn hash_graph(graph: &IfcGraph, interner: &StringInterner, cfg: &HashConfig)
 
     GraphHashes {
         per_node: current,
+        geometry: geom,
         root,
     }
 }

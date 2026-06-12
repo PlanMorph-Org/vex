@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use vex_diff::{DiffReport, Identity, Layer, PropDelta, SerValue};
+pub use vex_diff::{DiffReport, Identity, Layer, PlacementDelta, PropDelta, SerValue};
 
 /// One classified element change. Stable across IFC re-export thanks to
 /// [`Identity`] (`GlobalId` primary, structural-hash fallback).
@@ -24,6 +24,12 @@ pub struct ElementChange {
     /// `Added`/`Removed` (the type + identity is enough).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+    /// Which semantic layer the change occupies (`property` /
+    /// `relationship` / `shape`). `None` for `Added`/`Removed` and for
+    /// payloads produced by older builds. Additive — schema stays at
+    /// [`SCHEMA`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer: Option<Layer>,
 }
 
 /// What happened to an element. `Moved` and `Renamed` are refinements of
@@ -47,6 +53,12 @@ pub struct Counts {
     pub moved: u32,
     pub renamed: u32,
     pub modified: u32,
+    /// Added/Removed records on non-rooted internal entities (geometry
+    /// nodes, property resources, …) that were suppressed from
+    /// [`VisualDiff::elements`] to keep the element list readable. Additive
+    /// field — absent in older payloads, defaults to 0.
+    #[serde(default)]
+    pub internal: u32,
 }
 
 impl Counts {
@@ -168,6 +180,13 @@ impl VisualDiff {
 ///
 /// `from`/`to` are passed through verbatim into the result so callers can
 /// stamp the payload with whatever revision identifiers make sense.
+///
+/// Added/Removed records whose identity is not a `GlobalId` are internal,
+/// non-rooted entities (only `IfcRoot` subtypes carry a `GlobalId`): mesh
+/// point lists, face loops, property resources, … They are *suppressed*
+/// from [`VisualDiff::elements`] — their effect is already attributed to the
+/// owning rooted element via its structural/geometry hash — and tallied in
+/// [`Counts::internal`] so nothing is silently dropped.
 pub fn classify(report: &DiffReport, from: &str, to: &str) -> VisualDiff {
     let mut elements = Vec::with_capacity(report.changes.len());
     let mut counts = Counts::default();
@@ -178,6 +197,10 @@ pub fn classify(report: &DiffReport, from: &str, to: &str) -> VisualDiff {
                 identity,
                 type_name,
             } => {
+                if !matches!(identity, Identity::GlobalId(_)) {
+                    counts.internal += 1;
+                    continue;
+                }
                 counts.added += 1;
                 elements.push(ElementChange {
                     id: identity.clone(),
@@ -185,12 +208,17 @@ pub fn classify(report: &DiffReport, from: &str, to: &str) -> VisualDiff {
                     kind: ChangeKind::Added,
                     deltas: Vec::new(),
                     hint: None,
+                    layer: None,
                 });
             }
             vex_diff::Change::Removed {
                 identity,
                 type_name,
             } => {
+                if !matches!(identity, Identity::GlobalId(_)) {
+                    counts.internal += 1;
+                    continue;
+                }
                 counts.removed += 1;
                 elements.push(ElementChange {
                     id: identity.clone(),
@@ -198,6 +226,7 @@ pub fn classify(report: &DiffReport, from: &str, to: &str) -> VisualDiff {
                     kind: ChangeKind::Removed,
                     deltas: Vec::new(),
                     hint: None,
+                    layer: None,
                 });
             }
             vex_diff::Change::Modified {
@@ -205,8 +234,9 @@ pub fn classify(report: &DiffReport, from: &str, to: &str) -> VisualDiff {
                 type_name,
                 deltas,
                 layer,
+                placement,
             } => {
-                let (kind, hint) = classify_modified(type_name, deltas, *layer);
+                let (kind, hint) = classify_modified(type_name, deltas, *layer, placement.as_ref());
                 match kind {
                     ChangeKind::Moved => counts.moved += 1,
                     ChangeKind::Renamed => counts.renamed += 1,
@@ -218,6 +248,7 @@ pub fn classify(report: &DiffReport, from: &str, to: &str) -> VisualDiff {
                     kind,
                     deltas: deltas.clone(),
                     hint,
+                    layer: Some(*layer),
                 });
             }
         }
@@ -238,10 +269,31 @@ pub fn classify(report: &DiffReport, from: &str, to: &str) -> VisualDiff {
 fn classify_modified(
     type_name: &str,
     deltas: &[PropDelta],
-    _layer: Layer,
+    layer: Layer,
+    placement: Option<&PlacementDelta>,
 ) -> (ChangeKind, Option<String>) {
+    // A placement-location change with no property edits is the canonical
+    // "user moved the element in their CAD tool" case. Placement refs never
+    // surface as prop deltas (references live in edges), so this check is
+    // the only way Moved fires in practice.
+    if let Some(p) = placement {
+        let hint = Some(format!(
+            "Placement: {} → {}",
+            fmt_point(p.before.as_ref()),
+            fmt_point(p.after.as_ref())
+        ));
+        if deltas.is_empty() && layer != Layer::Shape {
+            return (ChangeKind::Moved, hint);
+        }
+        // Placement changed alongside other edits — still worth the hint.
+        return (ChangeKind::Modified, hint);
+    }
     if deltas.is_empty() {
-        return (ChangeKind::Modified, None);
+        let hint = match layer {
+            Layer::Shape => Some("Geometry changed".to_string()),
+            _ => None,
+        };
+        return (ChangeKind::Modified, hint);
     }
     let meaning_of = |key: &str| slot_meaning(type_name, key);
     let all_renames = deltas.iter().all(|d| {
@@ -259,8 +311,18 @@ fn classify_modified(
         (false, true) => ChangeKind::Moved,
         _ => ChangeKind::Modified,
     };
-    let hint = first_hint(deltas, &meaning_of);
+    let hint = first_hint(deltas, &meaning_of).or_else(|| match layer {
+        Layer::Shape => Some("Geometry changed".to_string()),
+        _ => None,
+    });
     (kind, hint)
+}
+
+fn fmt_point(p: Option<&[f64; 3]>) -> String {
+    match p {
+        Some([x, y, z]) => format!("({x}, {y}, {z})"),
+        None => "∅".to_string(),
+    }
 }
 
 fn first_hint(
@@ -389,7 +451,9 @@ fn is_element_subtype(upper: &str) -> bool {
 #[allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
-    use vex_diff::{Change, DiffReport, DiffSummary, Identity, Layer, PropDelta, SerValue};
+    use vex_diff::{
+        Change, DiffReport, DiffSummary, Identity, Layer, PlacementDelta, PropDelta, SerValue,
+    };
 
     fn modified(type_name: &str, key: &str, before: &str, after: &str) -> Change {
         Change::Modified {
@@ -401,6 +465,7 @@ mod tests {
                 after: Some(SerValue::Text(after.into())),
             }],
             layer: Layer::Property,
+            placement: None,
         }
     }
 
@@ -475,6 +540,7 @@ mod tests {
                     },
                 ],
                 layer: Layer::Property,
+                placement: None,
             }],
             summary: DiffSummary {
                 added: 0,
@@ -607,5 +673,83 @@ mod tests {
         let reparsed: VisualDiff = serde_json::from_str(&reserialized).expect("round-trips");
         assert_eq!(reparsed.schema, parsed.schema);
         assert_eq!(reparsed.elements[0].hint, parsed.elements[0].hint);
+    }
+
+    #[test]
+    fn moved_when_placement_delta_present() {
+        let r = DiffReport {
+            changes: vec![Change::Modified {
+                identity: Identity::GlobalId("X".into()),
+                type_name: "IFCWALL".into(),
+                deltas: vec![],
+                layer: Layer::Relationship,
+                placement: Some(PlacementDelta {
+                    before: Some([0.0, 0.0, 0.0]),
+                    after: Some([0.2, 0.0, 0.0]),
+                }),
+            }],
+            summary: DiffSummary {
+                added: 0,
+                removed: 0,
+                modified: 1,
+            },
+        };
+        let v = classify(&r, "a", "b");
+        assert_eq!(v.elements[0].kind, ChangeKind::Moved);
+        assert_eq!(v.counts.moved, 1);
+        let hint = v.elements[0].hint.as_deref().expect("placement hint");
+        assert!(hint.contains("(0, 0, 0) → (0.2, 0, 0)"), "hint: {hint}");
+    }
+
+    #[test]
+    fn shape_layer_surfaces_geometry_hint() {
+        let r = DiffReport {
+            changes: vec![Change::Modified {
+                identity: Identity::GlobalId("X".into()),
+                type_name: "IFCWALL".into(),
+                deltas: vec![],
+                layer: Layer::Shape,
+                placement: None,
+            }],
+            summary: DiffSummary {
+                added: 0,
+                removed: 0,
+                modified: 1,
+            },
+        };
+        let v = classify(&r, "a", "b");
+        assert_eq!(v.elements[0].kind, ChangeKind::Modified);
+        assert_eq!(v.elements[0].layer, Some(Layer::Shape));
+        assert_eq!(v.elements[0].hint.as_deref(), Some("Geometry changed"));
+    }
+
+    #[test]
+    fn internal_added_removed_suppressed_and_counted() {
+        let r = DiffReport {
+            changes: vec![
+                Change::Added {
+                    identity: Identity::StructuralHash("abc".into()),
+                    type_name: "IFCCARTESIANPOINT".into(),
+                },
+                Change::Removed {
+                    identity: Identity::StepId(42),
+                    type_name: "IFCPOLYLOOP".into(),
+                },
+                Change::Added {
+                    identity: Identity::GlobalId("G".into()),
+                    type_name: "IFCDOOR".into(),
+                },
+            ],
+            summary: DiffSummary {
+                added: 2,
+                removed: 1,
+                modified: 0,
+            },
+        };
+        let v = classify(&r, "a", "b");
+        assert_eq!(v.elements.len(), 1, "only the rooted door survives");
+        assert_eq!(v.counts.added, 1);
+        assert_eq!(v.counts.removed, 0);
+        assert_eq!(v.counts.internal, 2);
     }
 }

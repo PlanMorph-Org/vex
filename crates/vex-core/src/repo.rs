@@ -494,6 +494,35 @@ impl Repository {
         interner: &StringInterner,
     ) -> VexResult<(Hash256, Vec<Hash256>)> {
         let hashes = hash_graph(graph, interner, &self.hash_config());
+
+        // Tree entries are addressed by node hash, so entry hashes must be
+        // *unique* — otherwise WL-identical duplicates (identical entities
+        // are routine in real exports: shared profiles, repeated meshes)
+        // collapse on materialization, silently rewiring edges onto a single
+        // survivor and orphaning its twins. Disambiguate duplicates with an
+        // ordinal assigned in step-id order: deterministic, and isomorphic
+        // across re-exports since the colliding nodes are indistinguishable.
+        let mut ids: Vec<vex_graph::NodeId> = graph.nodes.iter().map(|(id, _)| id).collect();
+        ids.sort_by_key(|id| graph.nodes[*id].step_id);
+        let mut dup_count: ahash::AHashMap<Hash256, u32> = ahash::AHashMap::new();
+        let mut entry_hash_of: ahash::AHashMap<vex_graph::NodeId, Hash256> =
+            ahash::AHashMap::with_capacity(graph.node_count());
+        for id in ids {
+            let wl = hashes.per_node[&id];
+            let n = dup_count.entry(wl).or_insert(0);
+            let eh = if *n == 0 {
+                wl
+            } else {
+                let mut h = vex_utils::Hasher::new(vex_utils::hash::HashAlgo::Blake3);
+                h.update(b"dup:");
+                h.update(wl.as_bytes());
+                h.update(&n.to_be_bytes());
+                h.finalize()
+            };
+            *n += 1;
+            entry_hash_of.insert(id, eh);
+        }
+
         let mut entries: Vec<TreeEntry> = Vec::with_capacity(graph.node_count());
         let mut blob_hashes: Vec<Hash256> = Vec::with_capacity(graph.node_count());
 
@@ -511,24 +540,19 @@ impl Repository {
             let blob_hash = self.store.put_blob(&blob)?;
             blob_hashes.push(blob_hash);
             entries.push(TreeEntry {
-                node_hash: hashes.per_node[&id],
+                node_hash: entry_hash_of[&id],
                 blob_hash,
                 global_id: node.global_id.as_ref().map(|g| g.0.clone()),
             });
         }
         entries.sort_by_key(|e| *e.node_hash.as_bytes());
 
-        // Map NodeId → node_hash so we can rewrite edges to hash-space.
-        let mut node_hash_of = ahash::AHashMap::with_capacity(graph.node_count());
-        for (id, _) in &graph.nodes {
-            node_hash_of.insert(id, hashes.per_node[&id]);
-        }
         let mut edges: Vec<TreeEdge> = graph
             .edges
             .iter()
             .map(|e| TreeEdge {
-                from: node_hash_of[&e.from],
-                to: node_hash_of[&e.to],
+                from: entry_hash_of[&e.from],
+                to: entry_hash_of[&e.to],
                 kind: edge_kind_u8(e.kind),
                 slot: e.slot,
                 list_index: e.list_index,

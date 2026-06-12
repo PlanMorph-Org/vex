@@ -90,6 +90,7 @@ mod tests {
             kind,
             deltas: Vec::new(),
             hint: None,
+            layer: None,
         }
     }
 
