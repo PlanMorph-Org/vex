@@ -1,0 +1,139 @@
+name: Deploy vex-serve to Azure
+
+# Builds the vex-serve container image (docker/vex-serve/Dockerfile) and
+# rolls it out to the Azure Container Instance `aci-vex-serve`. This closes
+# the gap documented in architur/docs/deploy-vex-serve.md: vex-serve now has
+# a real image and a real CD path instead of being deployed by hand.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   AZURE_CLIENT_ID        - App registration "gh-actions-vexatlas-deploy" appId
+#   AZURE_TENANT_ID        - Azure AD tenant id
+#   AZURE_SUBSCRIPTION_ID  - Azure subscription id
+# Auth uses GitHub OIDC federated credentials (subject
+# repo:PlanMorph-Org/vex:ref:refs/heads/main), already configured on the
+# shared app registration during migration setup. ACI has no in-place image
+# update, so this recreates the container group with the new image tag,
+# reusing the existing Azure Files-backed repo volume (no data loss).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/vex-serve/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-vex-serve
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RESOURCE_GROUP: rg-vexatlas-prod-ne
+  ACR_NAME: acrvexatlas
+  ACR_LOGIN_SERVER: acrvexatlas.azurecr.io
+  ACI_NAME: aci-vex-serve
+  STORAGE_ACCOUNT: stvexatlasne
+  FILE_SHARE: vexatlas-repos
+  VEX_API_BASE: https://ca-vexatlas-api.calmtree-edee8174.northeurope.azurecontainerapps.io
+
+jobs:
+  build-and-deploy:
+    name: Build vex-serve image + redeploy ACI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build + push vex-serve image
+        run: |
+          az acr build \
+            --registry "$ACR_NAME" \
+            --image "vex-serve:${{ github.sha }}" \
+            --image "vex-serve:latest" \
+            -f docker/vex-serve/Dockerfile \
+            .
+
+      - name: Recreate vex-serve container instance
+        run: |
+          set -euo pipefail
+          ACR_PASSWORD=$(az acr credential show -n "$ACR_NAME" --query "passwords[0].value" -o tsv)
+          STORAGE_KEY=$(az storage account keys list -g "$RESOURCE_GROUP" -n "$STORAGE_ACCOUNT" --query "[0].value" -o tsv)
+
+          az container delete -g "$RESOURCE_GROUP" -n "$ACI_NAME" --yes || true
+
+          cat > /tmp/vex-serve.yaml <<YAML
+          apiVersion: 2021-09-01
+          location: northeurope
+          name: $ACI_NAME
+          properties:
+            containers:
+            - name: vex-serve
+              properties:
+                image: $ACR_LOGIN_SERVER/vex-serve:${{ github.sha }}
+                resources:
+                  requests:
+                    cpu: 1
+                    memoryInGB: 1.5
+                ports:
+                - port: 22
+                  protocol: TCP
+                environmentVariables:
+                - name: VEX_API_BASE
+                  value: "$VEX_API_BASE"
+                - name: VEX_REPO_ROOT
+                  value: /var/lib/vexatlas/repos
+                - name: VEX_FAIL_CLOSED
+                  value: "true"
+                - name: VEX_INTERNAL_SECRET
+                  secureValue: "${{ secrets.VEX_INTERNAL_SECRET }}"
+                volumeMounts:
+                - name: azurefile
+                  mountPath: /var/lib/vexatlas/repos
+            osType: Linux
+            restartPolicy: Always
+            ipAddress:
+              type: Public
+              ports:
+              - port: 22
+                protocol: TCP
+            imageRegistryCredentials:
+            - server: $ACR_LOGIN_SERVER
+              username: $ACR_NAME
+              password: "$ACR_PASSWORD"
+            volumes:
+            - name: azurefile
+              azureFile:
+                shareName: $FILE_SHARE
+                storageAccountName: $STORAGE_ACCOUNT
+                storageAccountKey: "$STORAGE_KEY"
+          YAML
+
+          az container create -g "$RESOURCE_GROUP" -f /tmp/vex-serve.yaml
+          rm -f /tmp/vex-serve.yaml
+
+      - name: Verify sshd is up
+        run: |
+          for i in $(seq 1 12); do
+            state=$(az container show -g "$RESOURCE_GROUP" -n "$ACI_NAME" --query "instanceView.state" -o tsv)
+            restarts=$(az container show -g "$RESOURCE_GROUP" -n "$ACI_NAME" --query "containers[0].instanceView.restartCount" -o tsv)
+            if [ "$state" = "Running" ] && [ "${restarts:-0}" = "0" ]; then
+              echo "vex-serve running cleanly"
+              exit 0
+            fi
+            echo "state=$state restarts=$restarts, waiting..."
+            sleep 10
+          done
+          echo "vex-serve did not stabilize after redeploy" >&2
+          exit 1
