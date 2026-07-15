@@ -1,0 +1,7 @@
+# Shell scripts must always use LF line endings, even on Windows checkouts.
+# CRLF here breaks Linux shebangs when these files are baked into the
+# vex-serve Docker image (see docs/MIGRATION.md and docker/vex-serve/README.md
+# for the incident this caused during the Azure migration).
+docker/vex-serve/*.sh text eol=lf
+docker/vex-serve/*.conf text eol=lf
+Dockerfile text eol=lf
