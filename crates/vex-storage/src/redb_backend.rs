@@ -75,6 +75,32 @@ impl ObjectBackend for RedbObjectBackend {
         Ok(())
     }
 
+    fn put_many(&self, objects: &[(Hash256, Vec<u8>)]) -> VexResult<()> {
+        if objects.is_empty() {
+            return Ok(());
+        }
+        let wtx = self
+            .db
+            .begin_write()
+            .map_err(|e| VexError::Storage(format!("begin_write: {e}")))?;
+        {
+            let mut table = wtx
+                .open_table(TABLE_OBJECTS)
+                .map_err(|e| VexError::Storage(format!("table: {e}")))?;
+            for (hash, framed) in objects {
+                // Content-addressed writes are idempotent: the same hash has
+                // the same validated frame. Avoid a read per object and let
+                // redb replace an identical value when it already exists.
+                table
+                    .insert(hash.as_bytes(), framed.as_slice())
+                    .map_err(|e| VexError::Storage(format!("insert: {e}")))?;
+            }
+        }
+        wtx.commit()
+            .map_err(|e| VexError::Storage(format!("commit: {e}")))?;
+        Ok(())
+    }
+
     fn get(&self, hash: Hash256) -> VexResult<Option<Vec<u8>>> {
         let rtx = self
             .db
@@ -87,6 +113,25 @@ impl ObjectBackend for RedbObjectBackend {
             .get(hash.as_bytes())
             .map_err(|e| VexError::Storage(format!("get: {e}")))?;
         Ok(val.map(|v| v.value().to_vec()))
+    }
+
+    fn get_many(&self, hashes: &[Hash256]) -> VexResult<Vec<Option<Vec<u8>>>> {
+        let rtx = self
+            .db
+            .begin_read()
+            .map_err(|e| VexError::Storage(format!("begin_read: {e}")))?;
+        let table = rtx
+            .open_table(TABLE_OBJECTS)
+            .map_err(|e| VexError::Storage(format!("table: {e}")))?;
+        hashes
+            .iter()
+            .map(|hash| {
+                table
+                    .get(hash.as_bytes())
+                    .map(|value| value.map(|value| value.value().to_vec()))
+                    .map_err(|e| VexError::Storage(format!("get: {e}")))
+            })
+            .collect()
     }
 
     fn has(&self, hash: Hash256) -> VexResult<bool> {

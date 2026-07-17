@@ -3493,6 +3493,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "bincode",
+ "rayon",
  "redb",
  "serde",
  "sqlx",

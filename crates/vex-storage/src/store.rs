@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rayon::prelude::*;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use vex_utils::{hash::HashAlgo, Hash256, VexError, VexResult};
@@ -93,6 +94,25 @@ impl ObjectStore {
         Ok(hash)
     }
 
+    /// Encode and persist typed objects as one backend batch. Hashes are
+    /// returned in input order, including duplicates.
+    pub fn put_many<T: Serialize + Sync>(
+        &self,
+        kind: ObjectKind,
+        values: &[T],
+    ) -> VexResult<Vec<Hash256>> {
+        let objects: Vec<(Hash256, Vec<u8>)> = values
+            .par_iter()
+            .map(|value| {
+                let payload = bincode::serialize(value)
+                    .map_err(|e| VexError::Storage(format!("bincode: {e}")))?;
+                encode(kind, &payload, self.algo)
+            })
+            .collect::<VexResult<_>>()?;
+        self.objects.put_many(&objects)?;
+        Ok(objects.into_iter().map(|(hash, _)| hash).collect())
+    }
+
     /// Insert framed object bytes verbatim. Used by the network protocol
     /// when receiving packs from a remote — the bytes are already framed
     /// and self-validating. Returns `Err(HashMismatch)` if the bytes do
@@ -140,6 +160,25 @@ impl ObjectStore {
         let value: T = bincode::deserialize(&payload)
             .map_err(|e| VexError::Storage(format!("bincode: {e}")))?;
         Ok((kind, value))
+    }
+
+    /// Fetch and decode typed objects in input order using one backend batch.
+    pub fn get_many<T: DeserializeOwned>(
+        &self,
+        hashes: &[Hash256],
+    ) -> VexResult<Vec<(ObjectKind, T)>> {
+        let frames = self.objects.get_many(hashes)?;
+        hashes
+            .iter()
+            .zip(frames)
+            .map(|(hash, frame)| {
+                let frame = frame.ok_or_else(|| VexError::NotFound(hash.to_hex()))?;
+                let (kind, _algo, payload) = decode(&frame, *hash)?;
+                let value = bincode::deserialize(&payload)
+                    .map_err(|e| VexError::Storage(format!("bincode: {e}")))?;
+                Ok((kind, value))
+            })
+            .collect()
     }
 
     /// Check whether an object exists.
@@ -231,6 +270,9 @@ impl ObjectStore {
     pub fn put_blob(&self, blob: &Blob) -> VexResult<Hash256> {
         self.put(ObjectKind::Blob, blob)
     }
+    pub fn put_blobs(&self, blobs: &[Blob]) -> VexResult<Vec<Hash256>> {
+        self.put_many(ObjectKind::Blob, blobs)
+    }
     pub fn put_tree(&self, tree: &Tree) -> VexResult<Hash256> {
         self.put(ObjectKind::Tree, tree)
     }
@@ -247,6 +289,18 @@ impl ObjectStore {
             return Err(VexError::Storage(format!("expected Blob, got {kind:?}")));
         }
         Ok(v)
+    }
+    pub fn get_blobs(&self, hashes: &[Hash256]) -> VexResult<Vec<Blob>> {
+        self.get_many::<Blob>(hashes)?
+            .into_iter()
+            .map(|(kind, blob)| {
+                if kind == ObjectKind::Blob {
+                    Ok(blob)
+                } else {
+                    Err(VexError::Storage(format!("expected Blob, got {kind:?}")))
+                }
+            })
+            .collect()
     }
     pub fn get_tree(&self, hash: Hash256) -> VexResult<Tree> {
         let (kind, v) = self.get::<Tree>(hash)?;
@@ -302,6 +356,47 @@ mod tests {
         assert_eq!(h1, h2);
         let back = store.get_blob(h1).expect("get");
         assert_eq!(back.type_name, "IFCWALL");
+    }
+
+    #[test]
+    fn put_blobs_preserves_order_duplicates_and_idempotency() {
+        let dir = tempdir();
+        let store = ObjectStore::open_or_create(&dir).expect("open");
+        let wall = Blob {
+            type_name: "IFCWALL".into(),
+            step_id: 1,
+            global_id: Some("wall-guid".into()),
+            props: vec![],
+        };
+        let slab = Blob {
+            type_name: "IFCSLAB".into(),
+            step_id: 2,
+            global_id: Some("slab-guid".into()),
+            props: vec![],
+        };
+        let blobs = vec![wall.clone(), slab.clone(), wall.clone()];
+
+        let first = store.put_blobs(&blobs).expect("bulk put");
+        let second = store.put_blobs(&blobs).expect("idempotent bulk put");
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), blobs.len());
+        assert_eq!(first[0], first[2]);
+        assert_ne!(first[0], first[1]);
+        let stored_wall = store.get_blob(first[0]).expect("wall");
+        let stored_slab = store.get_blob(first[1]).expect("slab");
+        assert_eq!(stored_wall.type_name, wall.type_name);
+        assert_eq!(stored_wall.step_id, wall.step_id);
+        assert_eq!(stored_wall.global_id, wall.global_id);
+        assert_eq!(stored_slab.type_name, slab.type_name);
+        assert_eq!(stored_slab.step_id, slab.step_id);
+        assert_eq!(stored_slab.global_id, slab.global_id);
+        let batch = store.get_blobs(&first).expect("bulk read");
+        assert_eq!(batch.len(), blobs.len());
+        assert_eq!(batch[0].type_name, "IFCWALL");
+        assert_eq!(batch[1].type_name, "IFCSLAB");
+        assert_eq!(batch[2].type_name, "IFCWALL");
+        assert_eq!(store.list_object_hashes().expect("hashes").len(), 2);
     }
 
     #[test]

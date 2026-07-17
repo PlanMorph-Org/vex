@@ -27,6 +27,7 @@ serde      = { workspace = true }
 bincode    = { workspace = true }
 tracing    = { workspace = true }
 time       = { workspace = true }
+rayon      = { workspace = true }
 
 # Optional cloud-backend dependencies, gated behind features so the local
 # `vex` CLI does not pull in the AWS SDK or SQLx.

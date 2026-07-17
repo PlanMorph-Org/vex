@@ -25,8 +25,23 @@ pub trait ObjectBackend: Send + Sync + Debug {
     /// Insert a framed object. Idempotent on the content hash.
     fn put(&self, hash: Hash256, framed: &[u8]) -> VexResult<()>;
 
+    /// Insert multiple framed objects in input order. Implementations with
+    /// transactional storage should override this to amortize commit cost.
+    fn put_many(&self, objects: &[(Hash256, Vec<u8>)]) -> VexResult<()> {
+        for (hash, framed) in objects {
+            self.put(*hash, framed)?;
+        }
+        Ok(())
+    }
+
     /// Fetch the framed bytes for a hash. Returns `Ok(None)` if absent.
     fn get(&self, hash: Hash256) -> VexResult<Option<Vec<u8>>>;
+
+    /// Fetch multiple framed objects in input order. Missing objects remain
+    /// `None`. Transactional backends should override this to share one read.
+    fn get_many(&self, hashes: &[Hash256]) -> VexResult<Vec<Option<Vec<u8>>>> {
+        hashes.iter().map(|hash| self.get(*hash)).collect()
+    }
 
     /// Existence check without copying bytes.
     fn has(&self, hash: Hash256) -> VexResult<bool>;

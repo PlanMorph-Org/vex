@@ -22,6 +22,9 @@ use vex_utils::{hash::HashAlgo, Hash256, Hasher, Profile, VexError, VexResult};
 
 pub(crate) const MAGIC: &[u8; 4] = b"VEX0";
 pub(crate) const VERSION: u8 = 1;
+const CODEC_ZSTD: u8 = 0;
+const CODEC_RAW: u8 = 1;
+const RAW_PAYLOAD_THRESHOLD: usize = 4096;
 
 /// Object kinds stored in the content-addressable store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -188,17 +191,27 @@ pub fn encode(kind: ObjectKind, payload: &[u8], algo: HashAlgo) -> VexResult<(Ha
     h.update(payload);
     let hash = h.finalize();
 
-    // Compress payload.
-    let compressed =
-        zstd::encode_all(payload, 3).map_err(|e| VexError::Storage(format!("zstd: {e}")))?;
+    // Most IFC entity blobs are only a few hundred bytes. Starting a zstd
+    // frame for each one costs far more CPU than it saves in I/O. Store small
+    // payloads verbatim; retain zstd for trees and genuinely large objects.
+    // The content hash is over the uncompressed payload, so this changes only
+    // physical framing, never object identity.
+    let (codec, stored) = if payload.len() < RAW_PAYLOAD_THRESHOLD {
+        (CODEC_RAW, payload.to_vec())
+    } else {
+        (
+            CODEC_ZSTD,
+            zstd::encode_all(payload, 3).map_err(|e| VexError::Storage(format!("zstd: {e}")))?,
+        )
+    };
 
-    let mut framed = Vec::with_capacity(8 + compressed.len());
+    let mut framed = Vec::with_capacity(8 + stored.len());
     framed.extend_from_slice(MAGIC);
     framed.push(VERSION);
     framed.push(kind as u8);
     framed.push(algo as u8);
-    framed.push(0); // reserved
-    framed.extend_from_slice(&compressed);
+    framed.push(codec);
+    framed.extend_from_slice(&stored);
     Ok((hash, framed))
 }
 
@@ -229,8 +242,17 @@ pub fn decode(framed: &[u8], expected: Hash256) -> VexResult<(ObjectKind, HashAl
         }
     };
 
-    let payload =
-        zstd::decode_all(&framed[8..]).map_err(|e| VexError::Storage(format!("zstd: {e}")))?;
+    let payload = match framed[7] {
+        CODEC_ZSTD => {
+            zstd::decode_all(&framed[8..]).map_err(|e| VexError::Storage(format!("zstd: {e}")))?
+        }
+        CODEC_RAW => framed[8..].to_vec(),
+        codec => {
+            return Err(VexError::Storage(format!(
+                "unsupported object codec {codec}"
+            )));
+        }
+    };
 
     let mut h = Hasher::new(algo);
     h.update(&[kind as u8, algo as u8]);
@@ -243,4 +265,43 @@ pub fn decode(framed: &[u8], expected: Hash256) -> VexResult<(ObjectKind, HashAl
         });
     }
     Ok((kind, algo, payload))
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn small_payload_uses_raw_codec_and_round_trips() {
+        let payload = b"small IFC entity";
+        let (hash, framed) = encode(ObjectKind::Blob, payload, HashAlgo::Blake3).expect("encode");
+
+        assert_eq!(framed[7], CODEC_RAW);
+        let (kind, algo, decoded) = decode(&framed, hash).expect("decode");
+        assert_eq!(kind, ObjectKind::Blob);
+        assert_eq!(algo, HashAlgo::Blake3);
+        assert_eq!(decoded, payload);
+    }
+
+    #[test]
+    fn large_payload_uses_zstd_codec_and_round_trips() {
+        let payload = vec![b'x'; RAW_PAYLOAD_THRESHOLD * 2];
+        let (hash, framed) = encode(ObjectKind::Tree, &payload, HashAlgo::Blake3).expect("encode");
+
+        assert_eq!(framed[7], CODEC_ZSTD);
+        let (_, _, decoded) = decode(&framed, hash).expect("decode");
+        assert_eq!(decoded, payload);
+    }
+
+    #[test]
+    fn rejects_unknown_codec() {
+        let payload = b"small IFC entity";
+        let (hash, mut framed) =
+            encode(ObjectKind::Blob, payload, HashAlgo::Blake3).expect("encode");
+        framed[7] = 99;
+
+        let error = decode(&framed, hash).expect_err("unknown codec must fail");
+        assert!(error.to_string().contains("unsupported object codec"));
+    }
 }

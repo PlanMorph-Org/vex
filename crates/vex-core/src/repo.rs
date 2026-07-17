@@ -7,6 +7,7 @@
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use vex_diff::{diff, render_text, DiffReport};
 use vex_graph::{
@@ -24,6 +25,8 @@ const DEFAULT_BRANCH: &str = "refs/heads/main";
 const HEAD_REF: &str = "HEAD";
 const STAGED_TREE: &str = "refs/staging/tree";
 const CONFIG_FILE: &str = "config.toml";
+const BLOB_WRITE_BATCH_SIZE: usize = 16_384;
+const BLOB_READ_BATCH_SIZE: usize = 16_384;
 
 /// An opened Vex repository.
 #[derive(Debug)]
@@ -31,6 +34,17 @@ pub struct Repository {
     store: ObjectStore,
     root: PathBuf,
     profile: Profile,
+}
+
+/// Performance and size metadata for one IFC import.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ImportReport {
+    pub tree: Hash256,
+    pub nodes: usize,
+    pub edges: usize,
+    pub parse_ms: u128,
+    pub persist_ms: u128,
+    pub total_ms: u128,
 }
 
 /// One semantic element from a committed tree. Mirrors the stored [`Blob`]
@@ -117,6 +131,13 @@ impl Repository {
     /// Parse an IFC file, build a graph, serialize it as a staged Tree object,
     /// and update the staging ref to point at that tree. Returns the tree hash.
     pub fn import(&self, ifc_path: impl AsRef<Path>) -> VexResult<Hash256> {
+        Ok(self.import_with_report(ifc_path)?.tree)
+    }
+
+    /// Import an IFC file and return stage timings for diagnostics and
+    /// performance regression tracking.
+    pub fn import_with_report(&self, ifc_path: impl AsRef<Path>) -> VexResult<ImportReport> {
+        let started = Instant::now();
         let file =
             File::open(ifc_path.as_ref()).map_err(|e| VexError::io_at(ifc_path.as_ref(), e))?;
         let interner = StringInterner::new();
@@ -126,9 +147,20 @@ impl Repository {
             &mut parser,
             self.profile.clone(),
         )?;
+        let parse_ms = started.elapsed().as_millis();
+        let nodes = graph.node_count();
+        let edges = graph.edge_count();
+        let persist_started = Instant::now();
         let (tree_hash, _) = self.write_tree(&graph, &interner)?;
         self.store.set_ref(STAGED_TREE, tree_hash)?;
-        Ok(tree_hash)
+        Ok(ImportReport {
+            tree: tree_hash,
+            nodes,
+            edges,
+            parse_ms,
+            persist_ms: persist_started.elapsed().as_millis(),
+            total_ms: started.elapsed().as_millis(),
+        })
     }
 
     /// Return the currently staged tree hash, if any.
@@ -299,24 +331,41 @@ impl Repository {
     /// guessing. Returns the resolved commit hash and the element records,
     /// sorted by STEP id.
     pub fn elements(&self, reference: &str) -> VexResult<(Hash256, Vec<ElementRecord>)> {
+        self.elements_rooted(reference, false)
+    }
+
+    /// List semantic elements, optionally limiting reads to IFC-rooted
+    /// entities using the `global_id` already stored on each tree entry.
+    pub fn elements_rooted(
+        &self,
+        reference: &str,
+        rooted_only: bool,
+    ) -> VexResult<(Hash256, Vec<ElementRecord>)> {
         let hash = self.resolve_ref(reference)?;
         let commit = self.store.get_commit(hash)?;
         let tree = self.store.get_tree(commit.tree)?;
-        let mut out = Vec::with_capacity(tree.entries.len());
-        for entry in &tree.entries {
-            let blob = self.store.get_blob(entry.blob_hash)?;
-            // The IFC `Name` attribute is positional slot `_2` on every
-            // `IfcRoot`-derived entity (GlobalId, OwnerHistory, Name, ...).
-            let name = blob.props.iter().find_map(|(k, v)| match v {
-                SerValue::Text(s) if k == "_2" && !s.is_empty() => Some(s.clone()),
-                _ => None,
-            });
-            out.push(ElementRecord {
-                type_name: blob.type_name,
-                step_id: blob.step_id,
-                global_id: blob.global_id,
-                name,
-            });
+        let selected: Vec<&TreeEntry> = tree
+            .entries
+            .iter()
+            .filter(|entry| !rooted_only || entry.global_id.is_some())
+            .collect();
+        let mut out = Vec::with_capacity(selected.len());
+        for entries in selected.chunks(BLOB_READ_BATCH_SIZE) {
+            let hashes: Vec<Hash256> = entries.iter().map(|entry| entry.blob_hash).collect();
+            for blob in self.store.get_blobs(&hashes)? {
+                // The IFC `Name` attribute is positional slot `_2` on every
+                // `IfcRoot`-derived entity (GlobalId, OwnerHistory, Name, ...).
+                let name = blob.props.iter().find_map(|(k, v)| match v {
+                    SerValue::Text(s) if k == "_2" && !s.is_empty() => Some(s.clone()),
+                    _ => None,
+                });
+                out.push(ElementRecord {
+                    type_name: blob.type_name,
+                    step_id: blob.step_id,
+                    global_id: blob.global_id,
+                    name,
+                });
+            }
         }
         out.sort_by_key(|e| e.step_id);
         Ok((hash, out))
@@ -526,24 +575,30 @@ impl Repository {
         let mut entries: Vec<TreeEntry> = Vec::with_capacity(graph.node_count());
         let mut blob_hashes: Vec<Hash256> = Vec::with_capacity(graph.node_count());
 
-        for (id, node) in &graph.nodes {
-            let blob = Blob {
-                type_name: interner.resolve(node.type_name).to_string(),
-                step_id: node.step_id,
-                global_id: node.global_id.as_ref().map(|g| g.0.clone()),
-                props: node
-                    .props
-                    .iter()
-                    .map(|(k, v)| (interner.resolve(*k).to_string(), to_ser(v, interner)))
-                    .collect(),
-            };
-            let blob_hash = self.store.put_blob(&blob)?;
-            blob_hashes.push(blob_hash);
-            entries.push(TreeEntry {
-                node_hash: entry_hash_of[&id],
-                blob_hash,
-                global_id: node.global_id.as_ref().map(|g| g.0.clone()),
-            });
+        let nodes: Vec<_> = graph.nodes.iter().collect();
+        for chunk in nodes.chunks(BLOB_WRITE_BATCH_SIZE) {
+            let blobs: Vec<Blob> = chunk
+                .iter()
+                .map(|(_, node)| Blob {
+                    type_name: interner.resolve(node.type_name).to_string(),
+                    step_id: node.step_id,
+                    global_id: node.global_id.as_ref().map(|g| g.0.clone()),
+                    props: node
+                        .props
+                        .iter()
+                        .map(|(k, v)| (interner.resolve(*k).to_string(), to_ser(v, interner)))
+                        .collect(),
+                })
+                .collect();
+            let chunk_hashes = self.store.put_blobs(&blobs)?;
+            for ((id, node), blob_hash) in chunk.iter().zip(chunk_hashes) {
+                blob_hashes.push(blob_hash);
+                entries.push(TreeEntry {
+                    node_hash: entry_hash_of[id],
+                    blob_hash,
+                    global_id: node.global_id.as_ref().map(|g| g.0.clone()),
+                });
+            }
         }
         entries.sort_by_key(|e| *e.node_hash.as_bytes());
 
@@ -600,21 +655,24 @@ impl Repository {
         let mut hash_to_node: ahash::AHashMap<Hash256, vex_graph::NodeId> =
             ahash::AHashMap::with_capacity(tree.entries.len());
 
-        for entry in &tree.entries {
-            let blob = self.store.get_blob(entry.blob_hash)?;
-            let type_id = interner.intern(&blob.type_name);
-            let props: SmallVec<[(vex_utils::StringId, Value); 8]> = blob
-                .props
-                .iter()
-                .map(|(k, v)| (interner.intern(k), from_ser(v, &interner)))
-                .collect();
-            let node_id = graph.insert_node(Node {
-                type_name: type_id,
-                step_id: blob.step_id,
-                global_id: blob.global_id.clone().map(GlobalId),
-                props,
-            });
-            hash_to_node.insert(entry.node_hash, node_id);
+        for entries in tree.entries.chunks(BLOB_READ_BATCH_SIZE) {
+            let hashes: Vec<Hash256> = entries.iter().map(|entry| entry.blob_hash).collect();
+            let blobs = self.store.get_blobs(&hashes)?;
+            for (entry, blob) in entries.iter().zip(blobs) {
+                let type_id = interner.intern(&blob.type_name);
+                let props: SmallVec<[(vex_utils::StringId, Value); 8]> = blob
+                    .props
+                    .iter()
+                    .map(|(k, v)| (interner.intern(k), from_ser(v, &interner)))
+                    .collect();
+                let node_id = graph.insert_node(Node {
+                    type_name: type_id,
+                    step_id: blob.step_id,
+                    global_id: blob.global_id.clone().map(GlobalId),
+                    props,
+                });
+                hash_to_node.insert(entry.node_hash, node_id);
+            }
         }
 
         for edge in &tree.edges {

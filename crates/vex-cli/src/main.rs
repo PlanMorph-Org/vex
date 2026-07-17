@@ -324,18 +324,28 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         }
         Cmd::Import { file } => {
             let repo = Repository::open(&repo_hint).context("open")?;
-            let hash = repo.import(&file).context("import")?;
+            let report = repo.import_with_report(&file).context("import")?;
             if cli.json {
                 println!(
                     "{}",
                     serde_json::json!({
                         "ok": true,
-                        "tree": hash.to_hex(),
+                        "tree": report.tree.to_hex(),
                         "file": file.to_string_lossy(),
+                        "nodes": report.nodes,
+                        "edges": report.edges,
+                        "timings_ms": {
+                            "parse": report.parse_ms,
+                            "persist": report.persist_ms,
+                            "total": report.total_ms,
+                        },
                     })
                 );
             } else {
-                println!("staged tree {hash}");
+                println!(
+                    "staged tree {} ({} nodes, parse {}ms, persist {}ms)",
+                    report.tree, report.nodes, report.parse_ms, report.persist_ms
+                );
             }
         }
         Cmd::IfcIntake { file } => {
@@ -472,10 +482,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         }
         Cmd::Elements { reference, rooted } => {
             let repo = Repository::open(&repo_hint).context("open")?;
-            let (hash, mut elements) = repo.elements(&reference).context("elements")?;
-            if rooted {
-                elements.retain(|e| e.global_id.is_some());
-            }
+            let (hash, elements) = repo
+                .elements_rooted(&reference, rooted)
+                .context("elements")?;
             if cli.json {
                 let payload = serde_json::json!({
                     "schema": "vex.elements/1",
