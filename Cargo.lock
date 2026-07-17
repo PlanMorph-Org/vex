@@ -3344,7 +3344,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vex-api"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
  "serde_json",
@@ -3358,7 +3358,7 @@ dependencies = [
 
 [[package]]
 name = "vex-cli"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "bincode",
@@ -3383,7 +3383,7 @@ dependencies = [
 
 [[package]]
 name = "vex-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ahash",
  "bincode",
@@ -3405,7 +3405,7 @@ dependencies = [
 
 [[package]]
 name = "vex-diff"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ahash",
  "serde",
@@ -3418,14 +3418,14 @@ dependencies = [
 
 [[package]]
 name = "vex-geometry"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "vex-utils",
 ]
 
 [[package]]
 name = "vex-graph"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "ahash",
  "rayon",
@@ -3441,7 +3441,7 @@ dependencies = [
 
 [[package]]
 name = "vex-ifc-parser"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "hex",
  "memchr",
@@ -3453,7 +3453,7 @@ dependencies = [
 
 [[package]]
 name = "vex-protocol"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "bincode",
  "serde",
@@ -3464,7 +3464,7 @@ dependencies = [
 
 [[package]]
 name = "vex-serve"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "bincode",
@@ -3488,7 +3488,7 @@ dependencies = [
 
 [[package]]
 name = "vex-storage"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "aws-config",
  "aws-sdk-s3",
@@ -3509,14 +3509,14 @@ dependencies = [
 
 [[package]]
 name = "vex-summary"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "vex-visual-diff",
 ]
 
 [[package]]
 name = "vex-utils"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "bincode",
  "blake3",
@@ -3530,7 +3530,7 @@ dependencies = [
 
 [[package]]
 name = "vex-visual-diff"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "serde",
  "serde_json",
