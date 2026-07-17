@@ -38,6 +38,7 @@ env:
   ACR_NAME: acrvexatlas
   ACR_LOGIN_SERVER: acrvexatlas.azurecr.io
   ACI_NAME: aci-vex-serve
+  ACI_DNS_LABEL: vexatlas-serve-ne
   STORAGE_ACCOUNT: stvexatlasne
   FILE_SHARE: vexatlas-repos
   VEX_API_BASE: https://ca-vexatlas-api.calmtree-edee8174.northeurope.azurecontainerapps.io
@@ -105,6 +106,7 @@ jobs:
             restartPolicy: Always
             ipAddress:
               type: Public
+              dnsNameLabel: $ACI_DNS_LABEL
               ports:
               - port: 22
                 protocol: TCP
@@ -128,11 +130,12 @@ jobs:
           for i in $(seq 1 12); do
             state=$(az container show -g "$RESOURCE_GROUP" -n "$ACI_NAME" --query "instanceView.state" -o tsv)
             restarts=$(az container show -g "$RESOURCE_GROUP" -n "$ACI_NAME" --query "containers[0].instanceView.restartCount" -o tsv)
-            if [ "$state" = "Running" ] && [ "${restarts:-0}" = "0" ]; then
-              echo "vex-serve running cleanly"
+            fqdn=$(az container show -g "$RESOURCE_GROUP" -n "$ACI_NAME" --query "ipAddress.fqdn" -o tsv)
+            if [ "$state" = "Running" ] && [ "${restarts:-0}" = "0" ] && [ -n "$fqdn" ] && timeout 5 bash -c "</dev/tcp/$fqdn/22"; then
+              echo "vex-serve running cleanly at $fqdn:22"
               exit 0
             fi
-            echo "state=$state restarts=$restarts, waiting..."
+            echo "state=$state restarts=$restarts fqdn=$fqdn, waiting..."
             sleep 10
           done
           echo "vex-serve did not stabilize after redeploy" >&2
