@@ -248,9 +248,50 @@ Three-way merge between `ours` and `theirs` based on their common ancestor.
 
 ### Checkout
 
-#### `vex checkout <REF> -o <FILE>`
+#### `vex checkout <REF> -o <FILE> [--storey <GlobalId>]`
 Materialize a commit (or ref) back to a real `.ifc` file. Semantic checkout —
 re-emits a valid STEP file from the stored graph.
+
+- **Full checkout** (default): re-emits the entire model. Byte and semantic
+  behavior is unchanged by the partial-checkout option below.
+- **Partial spatial checkout** (`--storey <GlobalId>`, opt-in): materialize a
+  valid IFC subset for exactly one authoritative `IfcBuildingStorey`
+  containment group. Intended for render workers that only need one level. The
+  subset contains:
+  - the storey plus its enclosing **Project → Site → Building** context, taken
+    from retained `Aggregates` relationships (never rendered geometry bounds);
+  - every element **directly contained** in that storey via `Contains`;
+  - the transitive **geometry dependencies** of everything above (object
+    placements, shape representations, the geometric representation context,
+    units, profiles, points…), so there are **no dangling STEP references**;
+  - the retained `IfcRelAggregates` links for the context chain and the
+    storey's `IfcRelContainedInSpatialStructure`, so **original containment
+    relations are preserved** for the included elements. Aggregation
+    relationships that also name sibling storeys are pruned to the retained
+    chain — siblings and their geometry never leak in.
+
+  Output is deterministic (STEP ids are re-densified from a stable step-id
+  sort, exactly like full checkout).
+
+  Policy:
+  - **Unknown / non-storey ids are rejected** — a `GlobalId` that resolves to
+    nothing, or to a non-`IfcBuildingStorey` entity, is an error and nothing is
+    written.
+  - **Multi-storey elements are never split** — an element contained by this
+    *and* another storey is emitted in full and reported under
+    `multi_storey_element_global_ids` (`--json`) / a `note:` line (text) so
+    downstream policy can decide.
+  - **Backward compatible** — omitting `--storey` runs the unchanged full
+    checkout.
+
+  ```console
+  $ vex checkout HEAD --storey 1hV2Vmb9z0kO73pR$Kfoo7 -o level-1.ifc
+  checked out storey 1hV2Vmb9z0kO73pR$Kfoo7 (Level 1) -> level-1.ifc (42 entities, 7 elements, 3184 bytes)
+  ```
+
+  `--json` emits a versioned report: `{ ok, out, mode: "storey", commit,
+  storey, context, element_global_ids, multi_storey_element_global_ids,
+  entities, bytes }`.
 
 ### Maintenance
 

@@ -134,6 +134,42 @@ pub struct SpatialContainment {
     pub ambiguous: Vec<AmbiguousMembership>,
 }
 
+/// Summary of a partial spatial checkout produced by
+/// [`Repository::checkout_storey`].
+///
+/// Records the target storey identity, the enclosing Project/Site/Building
+/// context that was carried along, the exact set of directly contained element
+/// `GlobalId`s (the authoritative membership of the subset), any of those
+/// elements that are *also* contained by another storey (multi-storey
+/// membership — emitted in full, never split), and how many STEP entities and
+/// bytes were written.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StoreyCheckout {
+    /// Hex hash of the commit the subset was materialized from.
+    pub commit: String,
+    /// Identity of the target storey.
+    pub storey: SpatialRef,
+    /// Enclosing spatial context from the storey up to the project root,
+    /// ordered nearest-parent first (Building, Site, Project…). Derived from
+    /// retained `Aggregates` relationships, never from geometry bounds.
+    pub context: Vec<SpatialRef>,
+    /// `GlobalId`s of elements directly contained in the storey via
+    /// `Contains`, sorted and de-duplicated. This is the exact membership of
+    /// the emitted subset.
+    pub element_global_ids: Vec<String>,
+    /// Subset of `element_global_ids` that are *also* directly contained by at
+    /// least one other storey. Each is written in full — geometry is never
+    /// split across the storey boundary — so downstream policy can decide how
+    /// to treat the overlap.
+    pub multi_storey_element_global_ids: Vec<String>,
+    /// Total number of STEP entities written (containers + contained elements +
+    /// their transitive geometry/context dependencies + retained containment
+    /// and aggregation relationships).
+    pub entity_count: usize,
+    /// Bytes written to the output file.
+    pub bytes: usize,
+}
+
 impl Repository {
     /// Create a new repository at `path`, writing an initial manifest.
     pub fn init(path: impl AsRef<Path>) -> VexResult<Self> {
@@ -1144,6 +1180,338 @@ impl Repository {
         let bytes = text.as_bytes();
         std::fs::write(out.as_ref(), bytes).map_err(|e| VexError::io_at(out.as_ref(), e))?;
         Ok(bytes.len())
+    }
+
+    /// Partial *spatial* checkout: materialize a valid IFC subset for a single
+    /// authoritative building-storey containment group.
+    ///
+    /// Opt-in counterpart to [`Repository::checkout`]. Given the `GlobalId` of
+    /// one `IfcBuildingStorey`, this emits:
+    ///
+    /// * the storey and its enclosing spatial context (the Project → Site →
+    ///   Building → Storey chain, following retained `Aggregates`
+    ///   relationships — never rendered geometry bounds);
+    /// * every element **directly contained** in that storey via `Contains`;
+    /// * the transitive forward dependencies of all of the above (object
+    ///   placements, shape representations, geometric representation context,
+    ///   units, profiles, points…), so the subset has **no dangling STEP
+    ///   references**;
+    /// * the retained `IfcRelAggregates` links of the context chain and the
+    ///   storey's `IfcRelContainedInSpatialStructure`, so **original
+    ///   containment relations are preserved** for the included elements.
+    ///
+    /// Aggregation relationships that also reference sibling storeys are
+    /// pruned to the retained chain rather than dragging siblings in, and
+    /// closure never expands into a spatial container outside the chain, so
+    /// exactly one storey's group is emitted.
+    ///
+    /// Policy:
+    /// * **Unknown / non-storey ids are rejected** — a `GlobalId` that resolves
+    ///   to nothing, or to something other than an `IfcBuildingStorey`, is an
+    ///   error (nothing is written).
+    /// * **Multi-storey elements are not split** — an element contained by
+    ///   both this and another storey is emitted here in full and reported in
+    ///   [`StoreyCheckout::multi_storey_element_global_ids`].
+    ///
+    /// Output is deterministic (STEP ids are re-densified from a stable
+    /// step-id sort, identical to full checkout) and does not alter the byte
+    /// or semantic behavior of [`Repository::checkout`].
+    #[allow(clippy::too_many_lines, clippy::items_after_statements)]
+    pub fn checkout_storey(
+        &self,
+        reference: &str,
+        storey_global_id: &str,
+        out: impl AsRef<Path>,
+    ) -> VexResult<StoreyCheckout> {
+        use std::collections::BTreeSet;
+        use vex_graph::ir::{Edge, IfcGraph, Value};
+        use vex_graph::NodeId;
+
+        // IFC positional attribute slots (0-based) for the two relationships we
+        // consume — identical to `spatial_containment`.
+        const AGG_PARENT_SLOT: u16 = 4; // RelatingObject (whole)
+        const AGG_CHILD_SLOT: u16 = 5; // RelatedObjects (parts)
+        const CONTAINS_ELEMENTS_SLOT: u16 = 4; // RelatedElements
+        const CONTAINS_STRUCTURE_SLOT: u16 = 5; // RelatingStructure (container)
+        const MAX_SPATIAL_DEPTH: usize = 64;
+
+        let hash = self.resolve_ref(reference)?;
+        let commit = self.store.get_commit(hash)?;
+        let (graph, interner) = self.materialize_graph(commit.tree)?;
+
+        struct NInfo {
+            type_name: String,
+            step_id: u64,
+            global_id: Option<String>,
+            name: Option<String>,
+        }
+        let mut info: ahash::AHashMap<NodeId, NInfo> =
+            ahash::AHashMap::with_capacity(graph.nodes.len());
+        for (id, node) in &graph.nodes {
+            let name = node.props.iter().find_map(|(k, v)| match v {
+                Value::Text(sid) if interner.resolve(*k) == "_2" => {
+                    let s = interner.resolve(*sid);
+                    (!s.is_empty()).then(|| s.to_string())
+                }
+                _ => None,
+            });
+            info.insert(
+                id,
+                NInfo {
+                    type_name: interner.resolve(node.type_name).to_string(),
+                    step_id: node.step_id,
+                    global_id: node.global_id.as_ref().map(|g| g.0.clone()),
+                    name,
+                },
+            );
+        }
+        let is_spatial_type = |t: &str| {
+            matches!(
+                t,
+                "IFCPROJECT" | "IFCSITE" | "IFCBUILDING" | "IFCBUILDINGSTOREY" | "IFCSPACE"
+            )
+        };
+        let to_ref = |id: NodeId| -> Option<SpatialRef> {
+            info.get(&id).map(|i| SpatialRef {
+                type_name: i.type_name.clone(),
+                step_id: i.step_id,
+                global_id: i.global_id.clone(),
+                name: i.name.clone(),
+            })
+        };
+
+        // Resolve the target storey by GlobalId; reject unknown / non-storey.
+        let mut matches: Vec<NodeId> = info
+            .iter()
+            .filter(|(_, i)| i.global_id.as_deref() == Some(storey_global_id))
+            .map(|(id, _)| *id)
+            .collect();
+        matches.sort_by_key(|id| info.get(id).map_or(u64::MAX, |i| i.step_id));
+        if matches.is_empty() {
+            return Err(VexError::NotFound(format!(
+                "no entity with GlobalId {storey_global_id} at {reference}"
+            )));
+        }
+        // Prefer a storey among any duplicates (defensive); otherwise take the
+        // lowest-step-id match so the error names a concrete type.
+        let storey = matches
+            .iter()
+            .copied()
+            .find(|id| {
+                info.get(id)
+                    .is_some_and(|i| i.type_name == "IFCBUILDINGSTOREY")
+            })
+            .unwrap_or_else(|| matches[0]);
+        if let Some(i) = info.get(&storey) {
+            if i.type_name != "IFCBUILDINGSTOREY" {
+                return Err(VexError::InvalidRef(format!(
+                    "GlobalId {storey_global_id} is {}, not IfcBuildingStorey; \
+                     --storey requires a building storey",
+                    i.type_name
+                )));
+            }
+        }
+
+        // Relationship indices + forward adjacency for the dependency closure.
+        #[derive(Default)]
+        struct AggRel {
+            parent: Option<NodeId>,
+            children: Vec<NodeId>,
+        }
+        #[derive(Default)]
+        struct ContainsRel {
+            structure: Option<NodeId>,
+            elements: Vec<NodeId>,
+        }
+        let mut aggs: ahash::AHashMap<NodeId, AggRel> = ahash::AHashMap::new();
+        let mut contains: ahash::AHashMap<NodeId, ContainsRel> = ahash::AHashMap::new();
+        let mut out_adj: ahash::AHashMap<NodeId, Vec<NodeId>> = ahash::AHashMap::new();
+        for edge in &graph.edges {
+            out_adj.entry(edge.from).or_default().push(edge.to);
+            match edge.kind {
+                EdgeKind::Aggregates => {
+                    let e = aggs.entry(edge.from).or_default();
+                    if edge.slot == AGG_PARENT_SLOT {
+                        e.parent = Some(edge.to);
+                    } else if edge.slot == AGG_CHILD_SLOT {
+                        e.children.push(edge.to);
+                    }
+                }
+                EdgeKind::Contains => {
+                    let e = contains.entry(edge.from).or_default();
+                    if edge.slot == CONTAINS_STRUCTURE_SLOT {
+                        e.structure = Some(edge.to);
+                    } else if edge.slot == CONTAINS_ELEMENTS_SLOT {
+                        e.elements.push(edge.to);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Spatial containers: recognized spatial types plus anything used as a
+        // `Contains` structure.
+        let mut container_ids: BTreeSet<NodeId> = BTreeSet::new();
+        for (id, i) in &info {
+            if is_spatial_type(&i.type_name) {
+                container_ids.insert(*id);
+            }
+        }
+        for rel in contains.values() {
+            if let Some(s) = rel.structure {
+                container_ids.insert(s);
+            }
+        }
+
+        // Parent link per container (deterministic on lowest parent STEP id).
+        let mut parent_of: ahash::AHashMap<NodeId, NodeId> = ahash::AHashMap::new();
+        for rel in aggs.values() {
+            let Some(parent) = rel.parent else { continue };
+            for &child in &rel.children {
+                if !container_ids.contains(&child) {
+                    continue;
+                }
+                let take = match parent_of.get(&child) {
+                    None => true,
+                    Some(existing) => {
+                        let new_sid = info.get(&parent).map_or(u64::MAX, |i| i.step_id);
+                        let cur_sid = info.get(existing).map_or(u64::MAX, |i| i.step_id);
+                        new_sid < cur_sid
+                    }
+                };
+                if take {
+                    parent_of.insert(child, parent);
+                }
+            }
+        }
+
+        // Enclosing spatial context: storey → building → site → project.
+        let mut chain: Vec<NodeId> = vec![storey];
+        let mut chain_set: BTreeSet<NodeId> = BTreeSet::new();
+        chain_set.insert(storey);
+        let mut cursor = storey;
+        for _ in 0..MAX_SPATIAL_DEPTH {
+            let Some(&parent) = parent_of.get(&cursor) else {
+                break;
+            };
+            if !chain_set.insert(parent) {
+                break; // cycle guard
+            }
+            chain.push(parent);
+            cursor = parent;
+        }
+
+        // Direct membership + the containment relationships that express it.
+        let mut kept_rels: BTreeSet<NodeId> = BTreeSet::new();
+        let mut element_ids: BTreeSet<NodeId> = BTreeSet::new();
+        for (&rel_id, rel) in &contains {
+            if rel.structure == Some(storey) {
+                kept_rels.insert(rel_id);
+                for &el in &rel.elements {
+                    element_ids.insert(el);
+                }
+            }
+        }
+
+        // How many spatial structures claim each element (multi-storey check).
+        let mut membership_count: ahash::AHashMap<NodeId, usize> = ahash::AHashMap::new();
+        for rel in contains.values() {
+            if rel.structure.is_none() {
+                continue;
+            }
+            for &el in &rel.elements {
+                *membership_count.entry(el).or_default() += 1;
+            }
+        }
+
+        // Retain the aggregation relationships that link the context chain.
+        for (&rel_id, rel) in &aggs {
+            let Some(parent) = rel.parent else { continue };
+            if !chain_set.contains(&parent) {
+                continue;
+            }
+            if rel.children.iter().any(|c| chain_set.contains(c)) {
+                kept_rels.insert(rel_id);
+            }
+        }
+
+        // Forward dependency closure. Seed with the context chain, the
+        // contained elements, and the retained relationships; follow every
+        // outgoing edge, but never expand into a spatial container outside the
+        // chain (this is what keeps sibling storeys — and their geometry — out
+        // while still pulling in shared geometry/context/units).
+        let mut kept: BTreeSet<NodeId> = BTreeSet::new();
+        let mut frontier: Vec<NodeId> = Vec::new();
+        frontier.extend(chain.iter().copied());
+        frontier.extend(element_ids.iter().copied());
+        frontier.extend(kept_rels.iter().copied());
+        while let Some(n) = frontier.pop() {
+            if !kept.insert(n) {
+                continue;
+            }
+            if let Some(targets) = out_adj.get(&n) {
+                for &t in targets {
+                    if container_ids.contains(&t) && !chain_set.contains(&t) {
+                        continue;
+                    }
+                    frontier.push(t);
+                }
+            }
+        }
+
+        // Build the subset graph: kept nodes plus edges strictly between kept
+        // nodes. Dropping edges to non-kept nodes prunes sibling references and
+        // guarantees no dangling `#N` in the rendered STEP output.
+        let mut sub = IfcGraph::new();
+        sub.schema.clone_from(&graph.schema);
+        let mut remap: ahash::AHashMap<NodeId, NodeId> = ahash::AHashMap::with_capacity(kept.len());
+        for &old in &kept {
+            if let Some(node) = graph.nodes.get(old) {
+                let new_id = sub.insert_node(node.clone());
+                remap.insert(old, new_id);
+            }
+        }
+        for edge in &graph.edges {
+            let (Some(&from), Some(&to)) = (remap.get(&edge.from), remap.get(&edge.to)) else {
+                continue;
+            };
+            sub.add_edge(Edge {
+                from,
+                to,
+                kind: edge.kind,
+                slot: edge.slot,
+                list_index: edge.list_index,
+            });
+        }
+
+        let text = render_ifc(&sub, &interner);
+        let bytes = text.as_bytes();
+        std::fs::write(out.as_ref(), bytes).map_err(|e| VexError::io_at(out.as_ref(), e))?;
+
+        // Report.
+        let storey_ref =
+            to_ref(storey).ok_or_else(|| VexError::Graph("storey identity vanished".into()))?;
+        let context: Vec<SpatialRef> = chain.iter().skip(1).filter_map(|&id| to_ref(id)).collect();
+        let mut element_global_ids: BTreeSet<String> = BTreeSet::new();
+        let mut multi: BTreeSet<String> = BTreeSet::new();
+        for &el in &element_ids {
+            if let Some(g) = info.get(&el).and_then(|i| i.global_id.clone()) {
+                element_global_ids.insert(g.clone());
+                if membership_count.get(&el).copied().unwrap_or(0) > 1 {
+                    multi.insert(g);
+                }
+            }
+        }
+
+        Ok(StoreyCheckout {
+            commit: hash.to_hex(),
+            storey: storey_ref,
+            context,
+            element_global_ids: element_global_ids.into_iter().collect(),
+            multi_storey_element_global_ids: multi.into_iter().collect(),
+            entity_count: kept.len(),
+            bytes: bytes.len(),
+        })
     }
 
     /// Garbage-collect unreachable objects. Keeps everything reachable from

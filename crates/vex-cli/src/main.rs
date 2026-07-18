@@ -174,12 +174,25 @@ enum Cmd {
         cmd: TagCmd,
     },
     /// Materialize a commit back to an IFC file (semantic checkout).
+    ///
+    /// By default this writes the full model. Pass `--storey <GlobalId>` for an
+    /// opt-in *partial spatial checkout*: a valid IFC subset containing just
+    /// that `IfcBuildingStorey`'s directly-contained elements, their geometry
+    /// dependencies, and the enclosing Project/Site/Building context (with
+    /// original containment relations preserved). The full-checkout path is
+    /// unchanged when `--storey` is omitted.
     Checkout {
         /// Ref or commit hash to checkout.
         reference: String,
         /// Output file path.
         #[arg(short = 'o', long)]
         out: PathBuf,
+        /// Opt-in partial spatial checkout: emit only the subset for the
+        /// `IfcBuildingStorey` with this `GlobalId` (plus its Project/Site/
+        /// Building context and each contained element's geometry). Rejects
+        /// unknown or non-storey ids. Omit for a full semantic checkout.
+        #[arg(long, value_name = "GlobalId")]
+        storey: Option<String>,
     },
     /// Delete unreachable objects from the store.
     Gc,
@@ -893,23 +906,71 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 }
             }
         }
-        Cmd::Checkout { reference, out } => {
+        Cmd::Checkout {
+            reference,
+            out,
+            storey,
+        } => {
             let repo = Repository::open(&repo_hint).context("open")?;
-            let bytes = repo.checkout(&reference, &out).context("checkout")?;
-            if cli.json {
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "ok": true,
-                        "out": out.to_string_lossy(),
-                        "bytes": bytes,
-                    })
-                );
-            } else {
-                println!(
-                    "checked out {reference} -> {} ({bytes} bytes)",
-                    out.display()
-                );
+            match storey {
+                None => {
+                    let bytes = repo.checkout(&reference, &out).context("checkout")?;
+                    if cli.json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "ok": true,
+                                "out": out.to_string_lossy(),
+                                "bytes": bytes,
+                            })
+                        );
+                    } else {
+                        println!(
+                            "checked out {reference} -> {} ({bytes} bytes)",
+                            out.display()
+                        );
+                    }
+                }
+                Some(gid) => {
+                    let report = repo
+                        .checkout_storey(&reference, &gid, &out)
+                        .context("checkout")?;
+                    if cli.json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "ok": true,
+                                "out": out.to_string_lossy(),
+                                "mode": "storey",
+                                "commit": report.commit,
+                                "storey": report.storey,
+                                "context": report.context,
+                                "element_global_ids": report.element_global_ids,
+                                "multi_storey_element_global_ids":
+                                    report.multi_storey_element_global_ids,
+                                "entities": report.entity_count,
+                                "bytes": report.bytes,
+                            }))?
+                        );
+                    } else {
+                        println!(
+                            "checked out storey {} ({}) -> {} ({} entities, {} elements, {} bytes)",
+                            report.storey.global_id.as_deref().unwrap_or("-"),
+                            report.storey.name.as_deref().unwrap_or(""),
+                            out.display(),
+                            report.entity_count,
+                            report.element_global_ids.len(),
+                            report.bytes,
+                        );
+                        if !report.multi_storey_element_global_ids.is_empty() {
+                            println!(
+                                "  note: {} multi-storey element(s) emitted in full (not split): {:?}",
+                                report.multi_storey_element_global_ids.len(),
+                                report.multi_storey_element_global_ids,
+                            );
+                        }
+                    }
+                }
             }
         }
         Cmd::Gc => {
