@@ -106,6 +106,17 @@ enum Cmd {
         #[arg(long)]
         rooted: bool,
     },
+    /// Export authoritative spatial containment metadata (Project / Site /
+    /// Building / Storey identity and contained element `GlobalId`s) derived
+    /// from the committed tree's retained graph relationships (`Aggregates`
+    /// for the hierarchy, `Contains` for membership) — never from rendered
+    /// geometry bounds. Intended as a stable feed for render workers: pass
+    /// `--json` for the versioned machine-readable output.
+    Spatial {
+        /// Revision to inspect (commit, branch, or tag). Defaults to `HEAD`.
+        #[arg(default_value = "HEAD")]
+        reference: String,
+    },
     /// Three-way merge between two revisions based on their common ancestor.
     Merge {
         /// Our side.
@@ -503,6 +514,72 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                         "  #{:<7} {:<28} {:<24} {}",
                         e.step_id, e.type_name, gid, name
                     );
+                }
+            }
+        }
+        Cmd::Spatial { reference } => {
+            let repo = Repository::open(&repo_hint).context("open")?;
+            let (hash, spatial) = repo.spatial_containment(&reference).context("spatial")?;
+            if cli.json {
+                let payload = serde_json::json!({
+                    "schema": vex_core::SPATIAL_SCHEMA,
+                    "ref": reference,
+                    "commit": hash.to_hex(),
+                    "containers": spatial.containers,
+                    "unassigned": spatial.unassigned,
+                    "ambiguous": spatial.ambiguous,
+                });
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                println!(
+                    "spatial containment at {} ({} containers, {} unassigned, {} ambiguous)",
+                    &hash.to_hex()[..12],
+                    spatial.containers.len(),
+                    spatial.unassigned.len(),
+                    spatial.ambiguous.len()
+                );
+                for c in &spatial.containers {
+                    let gid = c.entity.global_id.as_deref().unwrap_or("-");
+                    let name = c.entity.name.as_deref().unwrap_or("");
+                    let parent = c.parent.as_ref().map_or_else(
+                        || "(root)".to_string(),
+                        |p| p.global_id.as_deref().unwrap_or("-").to_string(),
+                    );
+                    println!(
+                        "  {:<20} {:<24} {:<20} parent={} elements={}",
+                        c.entity.type_name,
+                        gid,
+                        name,
+                        parent,
+                        c.element_global_ids.len()
+                    );
+                    for e in &c.element_global_ids {
+                        println!("      - {e}");
+                    }
+                }
+                if !spatial.unassigned.is_empty() {
+                    println!("  unassigned:");
+                    for e in &spatial.unassigned {
+                        let gid = e.global_id.as_deref().unwrap_or("-");
+                        println!(
+                            "      - {:<24} {} {}",
+                            gid,
+                            e.type_name,
+                            e.name.as_deref().unwrap_or("")
+                        );
+                    }
+                }
+                if !spatial.ambiguous.is_empty() {
+                    println!("  ambiguous (multi-container):");
+                    for a in &spatial.ambiguous {
+                        let gid = a.entity.global_id.as_deref().unwrap_or("-");
+                        let containers: Vec<&str> = a
+                            .containers
+                            .iter()
+                            .map(|c| c.global_id.as_deref().unwrap_or("-"))
+                            .collect();
+                        println!("      - {gid} in {containers:?}");
+                    }
                 }
             }
         }

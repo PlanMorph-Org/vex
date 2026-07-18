@@ -154,6 +154,56 @@ save"* button. Returns
 ```
 (or a friendly text equivalent) when `HEAD` has no parent.
 
+#### `vex spatial [REF]`
+Authoritative **spatial containment** export for a committed revision
+(defaults to `HEAD`). Reads the committed tree's retained graph relationships
+— `Aggregates` for the Project → Site → Building → Storey hierarchy and
+`Contains` for element membership — so the result reflects exactly what was
+committed, with **no IFC re-parsing and no rendered geometry bounds**. Intended
+as a stable feed for render workers.
+
+- Text mode: a one-line summary followed by each container (type, `GlobalId`,
+  name, parent, contained-element count) plus `unassigned` and `ambiguous`
+  sections.
+- `--json` mode: the versioned, deterministic payload below. Ordering is
+  stable — containers by spatial rank then STEP id, element `GlobalId`s sorted
+  and de-duplicated — and the shape is identified by the `schema` field
+  (`vex.spatial/1`).
+
+```json
+{
+  "schema": "vex.spatial/1",
+  "ref": "HEAD",
+  "commit": "<64-hex>",
+  "containers": [
+    {
+      "entity":  { "type_name": "IFCBUILDINGSTOREY", "step_id": 4,
+                   "global_id": "…", "name": "Level 1" },
+      "parent":  { "type_name": "IFCBUILDING", "step_id": 3,
+                   "global_id": "…", "name": "…" },
+      "element_global_ids": ["…", "…"],
+      "element_step_ids_without_global_id": []
+    }
+  ],
+  "unassigned": [ { "type_name": "IFCWALL", "step_id": 9,
+                    "global_id": "…", "name": "…" } ],
+  "ambiguous":  [ { "entity": { "…": "…" },
+                    "containers": [ { "…": "…" }, { "…": "…" } ] } ]
+}
+```
+
+Policy:
+- **Unassigned** — rooted entities (carry a `GlobalId`) that are neither
+  spatial containers nor IFC relationship entities and are not contained by
+  any spatial structure via `Contains`.
+- **Ambiguous / multi-storey** — an element directly contained by more than
+  one container is preserved under *every* claiming container **and** listed in
+  `ambiguous`; membership is never silently collapsed.
+- **Resilience** — relationships with missing endpoints (e.g. a null
+  `RelatingStructure`) are skipped rather than treated as fatal.
+- **Backward compatible** — a new read-only command; existing commands and
+  their default/`--json` output are unchanged.
+
 #### `vex verify [--signatures]`
 Re-hash every stored object and confirm content integrity. With `--signatures`
 also walks `HEAD`'s first-parent chain and verifies every Ed25519 signature.

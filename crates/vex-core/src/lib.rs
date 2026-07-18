@@ -3,5 +3,8 @@
 pub mod repo;
 pub mod signing;
 
-pub use repo::{ElementRecord, MergeOutcome, MergeStrategy, Repository, Status, StatusSummary};
+pub use repo::{
+    AmbiguousMembership, ElementRecord, MergeOutcome, MergeStrategy, Repository, SpatialContainer,
+    SpatialContainment, SpatialRef, Status, StatusSummary, SPATIAL_SCHEMA,
+};
 pub use signing::{generate_key, list_keys, sign_commit, verify_commit, SIGNATURE_ALGO};

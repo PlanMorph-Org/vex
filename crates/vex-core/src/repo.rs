@@ -63,6 +63,77 @@ pub struct ElementRecord {
     pub name: Option<String>,
 }
 
+/// Schema/version identifier for the spatial containment export. Bump the
+/// trailing integer on any breaking change to [`SpatialContainment`].
+pub const SPATIAL_SCHEMA: &str = "vex.spatial/1";
+
+/// A light-weight identity reference to one IFC entity used inside the spatial
+/// export. Carries both the `GlobalId` (when present) and the STEP id so
+/// render workers can join on whichever is stable for them.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SpatialRef {
+    /// IFC entity type, upper-cased (e.g. `IFCBUILDINGSTOREY`).
+    pub type_name: String,
+    /// STEP line id within the source file.
+    pub step_id: u64,
+    /// IFC `GlobalId` (22-char base64) when the entity carries one.
+    pub global_id: Option<String>,
+    /// Human label (IFC `Name` attribute, slot `_2`) when present.
+    pub name: Option<String>,
+}
+
+/// One spatial structure container (Project / Site / Building / Storey / Space)
+/// with its parent link and the elements directly contained in it. Derived
+/// exclusively from retained graph relationships — `Aggregates` for the
+/// container hierarchy and `Contains` for element membership — never from
+/// rendered geometry bounds.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SpatialContainer {
+    /// Identity of the container entity itself.
+    pub entity: SpatialRef,
+    /// Spatial parent (via `Aggregates`). `None` for the project root or when
+    /// no aggregation parent is retained in the committed graph.
+    pub parent: Option<SpatialRef>,
+    /// `GlobalId`s of elements directly contained via `Contains`, sorted and
+    /// de-duplicated. Elements assigned to more than one container also appear
+    /// in [`SpatialContainment::ambiguous`].
+    pub element_global_ids: Vec<String>,
+    /// STEP ids of directly contained elements that carry no `GlobalId`,
+    /// sorted. Present for resilience against malformed graphs; normally empty.
+    pub element_step_ids_without_global_id: Vec<u64>,
+}
+
+/// An element whose spatial containment is ambiguous — it is directly
+/// contained by more than one spatial container. Multi-storey membership is
+/// preserved (never silently collapsed) so downstream policy can decide.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AmbiguousMembership {
+    /// Identity of the multiply-contained element.
+    pub entity: SpatialRef,
+    /// Every container that claims the element, sorted deterministically.
+    pub containers: Vec<SpatialRef>,
+}
+
+/// Authoritative spatial containment metadata for one committed revision.
+///
+/// Produced by [`Repository::spatial_containment`] from the committed tree's
+/// retained graph relationships. Ordering is deterministic and the shape is
+/// versioned by [`SPATIAL_SCHEMA`], making it suitable as a stable feed for
+/// render workers.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SpatialContainment {
+    /// Spatial containers ordered by (spatial rank, STEP id): Project, Site,
+    /// Building, Storey, Space, then any other container type.
+    pub containers: Vec<SpatialContainer>,
+    /// Rooted entities (carry a `GlobalId`) that are neither spatial containers
+    /// nor IFC relationship entities and that are not contained by any spatial
+    /// structure. Sorted by STEP id.
+    pub unassigned: Vec<SpatialRef>,
+    /// Elements contained by more than one spatial container. Sorted by STEP
+    /// id. Each also appears under every claiming container above.
+    pub ambiguous: Vec<AmbiguousMembership>,
+}
+
 impl Repository {
     /// Create a new repository at `path`, writing an initial manifest.
     pub fn init(path: impl AsRef<Path>) -> VexResult<Self> {
@@ -369,6 +440,251 @@ impl Repository {
         }
         out.sort_by_key(|e| e.step_id);
         Ok((hash, out))
+    }
+
+    /// Export authoritative spatial containment metadata for a committed
+    /// revision. Reads the committed tree's retained graph relationships —
+    /// `Aggregates` for the Project → Site → Building → Storey hierarchy and
+    /// `Contains` for element membership — so the result reflects exactly what
+    /// was committed, with no IFC re-parsing and no rendered geometry bounds.
+    ///
+    /// The output is deterministic (stable ordering, de-duplicated element
+    /// lists) and versioned by [`SPATIAL_SCHEMA`]. Elements assigned to more
+    /// than one container are preserved in every container and additionally
+    /// reported under [`SpatialContainment::ambiguous`]; rooted elements with
+    /// no spatial assignment are reported under
+    /// [`SpatialContainment::unassigned`]. Malformed relationships (missing
+    /// endpoints) are skipped rather than treated as fatal.
+    #[allow(clippy::too_many_lines, clippy::items_after_statements)]
+    pub fn spatial_containment(&self, reference: &str) -> VexResult<(Hash256, SpatialContainment)> {
+        use std::collections::{BTreeMap, BTreeSet};
+        use vex_graph::ir::Value;
+        use vex_graph::NodeId;
+
+        // IFC positional attribute slots (0-based) for the two relationships
+        // we consume. `IfcRelAggregates(GlobalId, OwnerHistory, Name,
+        // Description, RelatingObject, RelatedObjects)` and
+        // `IfcRelContainedInSpatialStructure(GlobalId, OwnerHistory, Name,
+        // Description, RelatedElements, RelatingStructure)`.
+        const AGG_PARENT_SLOT: u16 = 4; // RelatingObject (whole)
+        const AGG_CHILD_SLOT: u16 = 5; // RelatedObjects (parts)
+        const CONTAINS_ELEMENTS_SLOT: u16 = 4; // RelatedElements
+        const CONTAINS_STRUCTURE_SLOT: u16 = 5; // RelatingStructure (container)
+
+        let hash = self.resolve_ref(reference)?;
+        let commit = self.store.get_commit(hash)?;
+        let (graph, interner) = self.materialize_graph(commit.tree)?;
+
+        // Resolve every node's identity once.
+        struct Info {
+            type_name: String,
+            step_id: u64,
+            global_id: Option<String>,
+            name: Option<String>,
+        }
+        let info_of = |node: &vex_graph::ir::Node| -> Info {
+            let name = node.props.iter().find_map(|(k, v)| match v {
+                Value::Text(sid) if interner.resolve(*k) == "_2" => {
+                    let s = interner.resolve(*sid);
+                    (!s.is_empty()).then(|| s.to_string())
+                }
+                _ => None,
+            });
+            Info {
+                type_name: interner.resolve(node.type_name).to_string(),
+                step_id: node.step_id,
+                global_id: node.global_id.as_ref().map(|g| g.0.clone()),
+                name,
+            }
+        };
+        let mut info: ahash::AHashMap<NodeId, Info> = ahash::AHashMap::new();
+        for (id, node) in &graph.nodes {
+            info.insert(id, info_of(node));
+        }
+        let to_ref = |id: NodeId| -> Option<SpatialRef> {
+            info.get(&id).map(|i| SpatialRef {
+                type_name: i.type_name.clone(),
+                step_id: i.step_id,
+                global_id: i.global_id.clone(),
+                name: i.name.clone(),
+            })
+        };
+
+        // Group the relationship edges by their originating relationship node,
+        // splitting endpoints by IFC slot.
+        #[derive(Default)]
+        struct AggRel {
+            parent: Option<NodeId>,
+            children: Vec<NodeId>,
+        }
+        #[derive(Default)]
+        struct ContainsRel {
+            structure: Option<NodeId>,
+            elements: Vec<NodeId>,
+        }
+        let mut aggs: ahash::AHashMap<NodeId, AggRel> = ahash::AHashMap::new();
+        let mut contains: ahash::AHashMap<NodeId, ContainsRel> = ahash::AHashMap::new();
+        for edge in &graph.edges {
+            match edge.kind {
+                EdgeKind::Aggregates => {
+                    let e = aggs.entry(edge.from).or_default();
+                    if edge.slot == AGG_PARENT_SLOT {
+                        e.parent = Some(edge.to);
+                    } else if edge.slot == AGG_CHILD_SLOT {
+                        e.children.push(edge.to);
+                    }
+                }
+                EdgeKind::Contains => {
+                    let e = contains.entry(edge.from).or_default();
+                    if edge.slot == CONTAINS_STRUCTURE_SLOT {
+                        e.structure = Some(edge.to);
+                    } else if edge.slot == CONTAINS_ELEMENTS_SLOT {
+                        e.elements.push(edge.to);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // A spatial container is any node of a recognized spatial-structure
+        // type, plus any node used as the `RelatingStructure` of a `Contains`
+        // relationship (resilient to unusual container types).
+        let is_spatial_type = |t: &str| {
+            matches!(
+                t,
+                "IFCPROJECT" | "IFCSITE" | "IFCBUILDING" | "IFCBUILDINGSTOREY" | "IFCSPACE"
+            )
+        };
+        let mut container_ids: BTreeSet<NodeId> = BTreeSet::new();
+        for (id, i) in &info {
+            if is_spatial_type(&i.type_name) {
+                container_ids.insert(*id);
+            }
+        }
+        for rel in contains.values() {
+            if let Some(s) = rel.structure {
+                container_ids.insert(s);
+            }
+        }
+
+        // Parent link per container from aggregation (deterministic on the
+        // lowest parent STEP id when a container has multiple parents).
+        let mut parent_of: ahash::AHashMap<NodeId, NodeId> = ahash::AHashMap::new();
+        for rel in aggs.values() {
+            let Some(parent) = rel.parent else { continue };
+            for &child in &rel.children {
+                if !container_ids.contains(&child) {
+                    continue;
+                }
+                let take = match parent_of.get(&child) {
+                    None => true,
+                    Some(existing) => {
+                        let new_sid = info.get(&parent).map_or(u64::MAX, |i| i.step_id);
+                        let cur_sid = info.get(existing).map_or(u64::MAX, |i| i.step_id);
+                        new_sid < cur_sid
+                    }
+                };
+                if take {
+                    parent_of.insert(child, parent);
+                }
+            }
+        }
+
+        // Element membership from containment.
+        let mut members: ahash::AHashMap<NodeId, BTreeSet<NodeId>> = ahash::AHashMap::new();
+        let mut membership: ahash::AHashMap<NodeId, BTreeSet<NodeId>> = ahash::AHashMap::new();
+        for rel in contains.values() {
+            let Some(structure) = rel.structure else {
+                continue;
+            };
+            for &el in &rel.elements {
+                members.entry(structure).or_default().insert(el);
+                membership.entry(el).or_default().insert(structure);
+            }
+        }
+
+        // Build the container records, ordered by (spatial rank, STEP id).
+        let rank = |t: &str| match t {
+            "IFCPROJECT" => 0u8,
+            "IFCSITE" => 1,
+            "IFCBUILDING" => 2,
+            "IFCBUILDINGSTOREY" => 3,
+            "IFCSPACE" => 4,
+            _ => 5,
+        };
+        let mut containers: Vec<SpatialContainer> = Vec::with_capacity(container_ids.len());
+        for &cid in &container_ids {
+            let Some(entity) = to_ref(cid) else { continue };
+            let mut gids: BTreeSet<String> = BTreeSet::new();
+            let mut no_gid: BTreeSet<u64> = BTreeSet::new();
+            if let Some(els) = members.get(&cid) {
+                for &el in els {
+                    if let Some(i) = info.get(&el) {
+                        match &i.global_id {
+                            Some(g) => {
+                                gids.insert(g.clone());
+                            }
+                            None => {
+                                no_gid.insert(i.step_id);
+                            }
+                        }
+                    }
+                }
+            }
+            containers.push(SpatialContainer {
+                parent: parent_of.get(&cid).copied().and_then(to_ref),
+                element_global_ids: gids.into_iter().collect(),
+                element_step_ids_without_global_id: no_gid.into_iter().collect(),
+                entity,
+            });
+        }
+        containers.sort_by(|a, b| {
+            rank(&a.entity.type_name)
+                .cmp(&rank(&b.entity.type_name))
+                .then(a.entity.step_id.cmp(&b.entity.step_id))
+        });
+
+        // Ambiguous memberships: elements claimed by more than one container.
+        let mut ambiguous: Vec<AmbiguousMembership> = Vec::new();
+        for (&el, structures) in &membership {
+            if structures.len() < 2 {
+                continue;
+            }
+            let Some(entity) = to_ref(el) else { continue };
+            let mut refs: Vec<SpatialRef> = structures.iter().filter_map(|&s| to_ref(s)).collect();
+            refs.sort_by_key(|r| r.step_id);
+            ambiguous.push(AmbiguousMembership {
+                entity,
+                containers: refs,
+            });
+        }
+        ambiguous.sort_by_key(|a| a.entity.step_id);
+
+        // Unassigned rooted entities: carry a GlobalId, are not spatial
+        // containers, are not IFC relationships, and are not contained.
+        let mut unassigned_map: BTreeMap<u64, SpatialRef> = BTreeMap::new();
+        for (id, i) in &info {
+            if i.global_id.is_none()
+                || container_ids.contains(id)
+                || i.type_name.starts_with("IFCREL")
+                || membership.contains_key(id)
+            {
+                continue;
+            }
+            if let Some(r) = to_ref(*id) {
+                unassigned_map.insert(i.step_id, r);
+            }
+        }
+        let unassigned: Vec<SpatialRef> = unassigned_map.into_values().collect();
+
+        Ok((
+            hash,
+            SpatialContainment {
+                containers,
+                unassigned,
+                ambiguous,
+            },
+        ))
     }
 
     /// Audit the entire object store. Returns the object count.
